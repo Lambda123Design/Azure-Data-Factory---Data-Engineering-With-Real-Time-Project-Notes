@@ -43,6 +43,42 @@ This Repository contains my Notes of "Azure Data Factory - Data Engineering With
 
 **H) Azure Data Factory Components Summary**
 
+**IV) Data Ingestion Pipeline - HTTP Source**
+
+**A) Data Ingestion Pipeline Requirement**
+
+**B) Pipeline Expression Builder & Dataset Parameters Overview**
+
+**C) Creating & Configuring Dataset Parameters**
+
+**D) Pipeline Parameters Overview**
+
+**E) Creating & Configuring Pipeline Parameters**
+
+**F) Debugging & Dynamically Passing Parameter Values**
+
+**G) Recap Dataset and Pipeline Parameters**
+
+**H) Identify Static and Dynamic Parameter Values**
+
+**I) Configure Static Pipeline Parameter Values**
+
+**J) Dynamic Pipeline Expressions Using Pipeline Parameters & ADF Functions**
+
+**K) Data factory DATETIME format overview & Error Handling in Ingestion Pipeline**
+
+**L) Formatting DATETIME Values Using Advanced Expressions and Date Functions**
+
+**M) Configuring Pipeline Variables and SET VARIABLE Activity**
+
+**N) ADF Triggers Overview**
+
+**O) Create & Configure Tumbling Window Trigger**
+
+**P) Passing Tumbling Window Trigger System Variables To Pipeline Parameters**
+
+**Q) Monitor Automated Pipeline Runs Via Tumbling Window Trigger**
+
 
 
 
@@ -392,3 +428,235 @@ We created two source datasets—one for a delimited text (CSV) file and another
 Besides the Author tab, we also explored other tabs in Data Factory Studio. The Monitor tab allows us to track pipeline and activity runs, including run logs, the number of records read and written, and throughput. This tab can display pipeline runs from up to 30 days or for a custom date range. The Manage tab is used to define reusable Data Factory components, such as linked services, datasets, and other objects. Linked services, for instance, can be created here and later mapped to datasets within pipelines.
 
 The Home tab provides quick access to common tools, like ingesting data or initiating data flows. However, for proper development practices, we focused on the Author tab to create pipelines in a structured, developer-oriented approach. It’s important to note that the pipelines we developed in this section are not real-time project pipelines; they were designed to introduce the key ADF components—pipelines, activities, datasets, and linked services. Becoming familiar with these components prepares us to create actual ingestion pipelines for real-time projects, which will be covered in the next section.
+
+# **IV) Data Ingestion Pipeline - HTTP Source**
+
+# **A) Data Ingestion Pipeline Requirement**
+
+We have started developing a Data Factory pipeline to ingest data from our existing source system, which resides on an HTTP web server, into the Azure Data Lake Storage account. In our data analytics project, we are moving these files into the first layer, called the Landing Layer. The pipelines we have developed so far are sufficient to understand the different components involved in Data Factory pipeline development, such as creating datasets, creating linked services, and using activities.
+
+However, these pipelines are not robust enough to handle scenarios that occur in a real-time project. In real-time projects, our source system generates new files on a daily basis to capture changes in product pricing information and product arrival quantities. Let us quickly recap our source data and what we are capturing here. The source data includes the daily arrival quantities of products and the minimum and maximum prices set for those products in different markets across India. This information changes daily. To capture these changes, the source system generates a new set of files daily with different file names.
+
+The pipelines we have developed so far point to a single source file. This approach is insufficient because it cannot automatically handle changing file names in the source system. To address this, we need to modify the pipelines using additional options available in Azure Data Factory so that they can automatically capture changes in source file names daily and copy the data into the Landing Layer.
+
+Let us have a quick look at the pipelines we have developed in the Azure portal. We are all getting familiar with using this portal. If you are not logged in, go to portal.azure.com and log in using the free account we have set up. Once logged in, open Azure Data Factory in a new tab and launch Data Factory Studio to view the pipelines we have developed and to create new ones. This Data Factory Studio has a different interface, and we have explored most of the tabs available here. We no longer use the Home button and primarily use the Author button to develop pipelines and configure their associated components. To create a new pipeline, you can right-click, or if you want to open an existing pipeline, the pipeline design window will open along with the activities.
+
+Activities are the backbone of Azure Data Factory. Any coding in Data Factory involves using and configuring these activities. In this pipeline design pattern, we are specifically working on the Copy Data activity in Lab One. By clicking on this activity, the configuration settings associated with it will open. We have configured our source and sink datasets to move a single file from the HTTP web server into the Landing Layer of our data analytics platform.
+
+If you open the dataset and examine the connection information, it uses a linked service to connect to the HTTP web server. Inside this linked service, we configured the base URL to read a specific file from the web server. We set the relative URL property with a fixed value: labs/lab_one/product_wise_market_wise_daily_report_0101_2023.csv. This value is fixed and cannot pick up new files from the source because it is not dynamic. This is what we are going to change.
+
+We will modify the relative URL property so that its value is derived during runtime. We will make this dynamic content, which means the pipeline will not point to any specific source file during development. Instead, during runtime, it will determine which file to read. For example, if the pipeline runs for January 1st, it will read the January 1st file, and if it runs for January 2nd, it will read the January 2nd file. This is what we will learn in this section. I will see you in the next lesson.
+
+# **B) Pipeline Expression Builder & Dataset Parameters Overview**
+
+We need to change the value of the relative URL setting from a static single file to one that is dynamically derived during runtime. To do this, if you click on the settings box in Azure Data Factory, it gives you the option to either set this value statically in the box or, at the bottom of the box, set the value using dynamic content. By selecting the option to add dynamic content, it will open the Pipeline Expression Builder. Here, you can construct an expression, and the output of that expression will replace the value for this setting.
+
+The options available to build your expression depend on the component you are working on. For example, when working on a dataset, you can build expressions using the parameters and functions available in Azure Data Factory. These functions are always available when you open the dynamic content option on any component, along with the Pipeline Expression Builder. The additional option available based on the component we are working on is the parameter. The output of the expression will replace the value in this setting.
+
+Now, what are parameters? Just like in any programming language such as Python or Java, if you want to pass a value to a program during runtime, you use parameters. Parameters are essentially logical references or pointers to a value. The actual value is decided at runtime, not during development. Parameters act as a reference to the value that will be supplied during runtime. You can create a new parameter here, give it a name, and choose the type of the parameter depending on the value it will hold. In our case, it will be a string. You can also provide a default value. If no value is supplied during runtime, the default value will be used for this setting.
+
+Along with parameters, you can use built-in functions available in Azure Data Factory to derive the value for your configuration setting by building expressions. We will explore these functions with our actual requirement later. For now, we focus on how to use parameters—how to map a parameter to the connection settings and how to pass a value to that parameter during runtime.
+
+We will see this in the next section. I do not want to change any of the existing datasets yet because keeping them intact allows you to incrementally understand the difference between using configuration settings without parameters and using parameterized settings. You will also see the flexibility gained by parameterizing configuration settings. I’ll see you in the next lesson for setting the parameter for our source dataset.
+
+# **C) Creating & Configuring Dataset Parameters**
+
+Transcript not available; Not giving Relative URL while creating dataset; Parameters can be created in "Connection", and as well as in "Parameters"
+
+# **D) Pipeline Parameters Overview**
+
+Transcript not available; Now it is like manually writing file name; We don't need any human intervention; We want it to load on its own; We want to Parametrize in Pipeline Level in "Pipeline Expression Builder"
+
+# **E) Creating & Configuring Pipeline Parameters**
+
+We created Dataset Parameters and later used at Pipeline Parameters
+
+We are using parameterized source and sink datasets inside the pipeline. Since these datasets are in a parameterized state, the pipeline requires values to be passed to them. In the previous lesson, we tried to pass the source file as a static value, but this approach is not suitable for handling real-time scenarios. We are going to change the values passed from the pipeline to dynamic content. As soon as you click on the Dynamic Content option inside the pipeline, the same Pipeline Expression Builder used in the dataset opens, but now with additional options available at the pipeline level.
+
+At the pipeline level, you can map values from a parameter or a system variable. Functions always appear in the Pipeline Expression Builder, regardless of where you open the dynamic content. The remaining options vary depending on the ADF component you are working on. You can also use variables at the pipeline level, including system variables, which we will explore later. For now, we focus on parameters. Parameters are logical pointers or references for values that you pass at runtime, either at the dataset level or pipeline level. During runtime, these parameters take the provided values and replace them wherever they are used.
+
+Parameters at the pipeline level function similarly to those created at the dataset level. By clicking the plus button in the pipeline, you can create a new parameter and assign a value. Instead of using dataset-level parameters directly, we create pipeline-level parameters and pass their values to the dataset parameters at runtime. For example, for the dataset parameter relative URL, we create a corresponding pipeline parameter with the same naming convention and map it to the dataset parameter. This allows the dataset to dynamically receive values from the pipeline during execution.
+
+To view pipeline parameters, click anywhere outside the activities in the pipeline design window. This will take you to the Parameters tab, which shows all configuration settings associated with the pipeline. Here, you can see the parameter we created to pass the value to the source dataset. Similarly, we create three parameters at the pipeline level to pass values to the sink dataset. We use a naming convention to differentiate pipeline parameters from dataset parameters by prefixing them with pipeline_.
+
+Thus, there are two types of parameters in Azure Data Factory: dataset-level parameters and pipeline-level parameters. Dataset parameters are associated with dataset connections, and their values are replaced by the values passed from the pipeline. These values can either be hardcoded or parameterized at the pipeline level. In our case, we are parameterizing at the pipeline level and mapping the pipeline parameters to the dataset parameters. When we debug the pipeline, it becomes clear how pipeline parameters are mapped to dataset parameters and how the runtime values replace the dataset parameter values during execution.
+
+For example, in our pipeline, the dataset parameter sync container name is mapped to the pipeline parameter container name. Similarly, the dataset parameter folder is mapped to the pipeline parameter folder name, and the dataset parameter file name is mapped to the pipeline parameter file name. The difference between the previous pipeline and the current one is that nothing is hardcoded anymore; all values are parameterized. The first level of parameterization occurs at the dataset, which is then used in the connection object. These datasets are then used in the pipeline. Pipeline parameters are created and mapped to dataset parameters for both the source and sink datasets.
+
+Now, anywhere inside the pipeline, the values are not static. During debugging, the pipeline will use the values passed to the pipeline parameters. These values will replace the dataset parameters dynamically, allowing the pipeline to run using the runtime values. In the next lesson, we will debug the pipeline and pass values to these pipeline parameters to see it in action.
+
+# **F) Debugging & Dynamically Passing Parameter Values**
+
+Transcript not available; We just passed file names and storage location names during runtime at pipeline level and not at dataset level
+
+# **G) Recap Dataset and Pipeline Parameters**
+
+Understanding the usage of parameters in Azure Data Factory is the key to advancing your pipeline development skills. We have created parameters both at the dataset level and at the pipeline level. Let’s go through this once more to clearly understand what is happening.
+
+We are trying to load data from an HTTP web server source system into the Landing Layer of our Data Lake Storage account. The source system generates new source files daily, with new file names each day. Therefore, we need to develop a pipeline that can automatically capture changes in source file names from the source system without any user intervention.
+
+To achieve this, we created a parameter at the dataset level — specifically in the source dataset — to capture changes in the source file name. This parameter acts as a logical reference or pointer to a value that we pass at runtime. It does not point to any specific source file during development. We mapped this parameter to the connection object inside the same source dataset, making the dataset generic and not tied to any particular file.
+
+Similarly, in the sink dataset, we created three parameters to capture the container name, the folder name, and the file name. All these parameters are driven by the source file name, since the source file comes from a specific folder and follows a particular naming convention. To capture both the folder and file name, we created two different parameters. The container name parameter is always set to point to the “landing” container in our Data Lake Storage account. Again, we created these parameters at the dataset level and mapped them to the dataset’s connection properties — first for the container name, then the folder name, and finally the file name. These make up our dataset-level parameters.
+
+Until this point, we hadn’t used these datasets in the pipeline. Once we started using the source dataset in the Copy Data activity, Azure Data Factory asked for the parameter values defined at the dataset level. Inside the pipeline, we could have passed specific file names as static values, but that would defeat our goal of making the code fully generic. So, we created another set of parameters at the pipeline level to pass values to these dataset parameters.
+
+These pipeline parameters are designed based on the list of parameters we created at the dataset level. To create them, we navigated to the pipeline parameters — which are not specific to any activity or dataset, but rather belong to the pipeline itself — and defined four parameters: one for the source dataset and three for the sink dataset. We then mapped these pipeline parameters to the dataset parameters inside the pipeline, ensuring that any value passed to the pipeline parameters would automatically flow down to the dataset parameters. The dataset parameter values, in turn, get replaced in the dataset connection properties, allowing the source and sink to dynamically read and write data based on the runtime values.
+
+Now, our code is completely generic. It no longer points to any specific source or sink file. The files are determined dynamically at runtime. When we start the pipeline, it will ask for values for the pipeline parameters. Note that these are pipeline parameters, not dataset parameters, because datasets alone are not executable components — they must be used within a pipeline activity. Pipeline parameters act as root-level parameters and are used to pass values into dataset parameters.
+
+Currently, we are loading two source files from the HTTP web server. For the first run, we pass the first source file path as the relative URL value. The container name remains fixed as “landing,” the sink folder name is derived from the source folder name, and the sink file name is also derived from the source file name. The main driver here is the source relative URL, as it changes daily. This allows the pipeline to read the new source file each day and load it into the landing container without any manual intervention.
+
+When you pass these values during execution, they are replaced inside the pipeline parameters, which then replace the corresponding dataset parameter values. Those values, in turn, are used in the dataset connection properties. For example, when the source reads the product_wise_market_wise_daily_report_0101_2023.csv file, it loads it into the Landing container. In the next run, if you debug again and pass the 0102_2023 file, the same parameter replacement occurs — the new file name is dynamically passed through the parameters and loaded into the Landing container.
+
+So far, this pipeline is highly reusable. We have built a solution that can dynamically load different source files on a daily basis. However, there is still one user intervention required: we have to manually provide the source file name for each run. In the next step, we will automate this part as well, so that the pipeline automatically retrieves these values at runtime and executes multiple runs automatically. We will make these changes in the next lesson.
+
+# **H) Identify Static and Dynamic Parameter Values**
+
+Transcript not available; We clicked on outside of Pipeline and gave "Default Parameters"; Splitted up Relative and Sink Path into 4 Parameters - Folder Name, File Name, File Date (Dynamic), File Type
+
+# **I) Configure Static Pipeline Parameter Values**
+
+Transcript not available; We have to try to concatenate all 4 parameters and pass it to Dataset Parameter; We will use concatenate using "Azure Functions"; We don't need to do any coding; We need to just press on individual Parameters and then it will concatenate
+
+# **J) Dynamic Pipeline Expressions Using Pipeline Parameters & ADF Functions**
+
+Transcript not available; We will use concatenate using "Azure Functions"; We don't need to do any coding; We need to just press on individual Parameters and then it will concatenate
+
+# **K) Data factory DATETIME format overview & Error Handling in Ingestion Pipeline**
+
+We need to find a proper way to automate the URL file date. Currently, the file names take values such as 01012023 and 01022023, representing the files for January 1st and January 2nd, respectively. However, if we continue passing these values manually, we end up running the pipeline twice — once for 01012023 and again for 01022023. This manual repetition is what we want to eliminate.
+
+These date values can actually be derived from the Universal Date Time format. For example, instead of manually entering 01012023, we can represent dates in the universal format, which is much easier to automate inside Azure Data Factory (ADF). The universal date format follows a pattern where the year part comes first, followed by the month, day, time, and finally the timezone information (like GMT, GMT+1, GMT+6, etc.). Since dates are fundamental in almost every software system, ADF — like other platforms — can easily generate and handle date values in this universal format automatically.
+
+So instead of passing a manually typed date like 01012023, I would like to pass the Universal Date Time format value as the file_date parameter in the pipeline. This approach can later be automated within ADF using dynamic expressions. For now, we will manually pass the Universal Date Time value as a parameter and run the pipeline to test it.
+
+Once the new value is passed, we can run the pipeline. At this stage, it’s expected that the pipeline will fail — and that’s intentional. The idea is to debug the failure to understand what needs to be fixed for automation to work properly. So instead of passing the actual file date format (01012023), we’re passing the Universal Date Time format (something like 2023-01-01T00:00:00Z) because this is the format that can be easily generated and manipulated inside ADF. However, our source system currently stores files using the compact format (like 01012023), so there will be a mismatch.
+
+After running the pipeline, as expected, it fails. To check what went wrong, we can click on the information icon next to the failed activity. This opens the detailed error message. It’s usually a good idea to expand this window fully since error details can be long and hard to read.
+
+The error message shows that the HTTP request failed with client error status code 404 (Not Found). This means that the requested file does not exist in the source system. The error also provides a hint: “Please check your activity settings. If you configured base URL that includes a path, make sure it ends with a slash.” This confirms that the problem is not with connectivity but with the file name construction.
+
+When we look at the full URL that ADF generated, we can see that it’s formed by concatenating the four parameter values we passed:
+
+The first parameter (folder name): Labs/Lab3
+
+The second parameter (file name prefix)
+
+The third parameter (file date, in universal format)
+
+The fourth parameter (file type, .csv)
+
+By combining these values, the final URL becomes something like:
+
+https://<base_url>/Labs/Lab3/<file_name>2023-01-01T00:00:00Z.csv
+
+However, the source system does not have a file with that date format. Its files are named in the format 01012023.csv, not 2023-01-01T00:00:00Z.csv. Hence, the system throws a 404 Not Found error — because the file name we constructed does not exist in the source.
+
+To fix this, we need to convert the Universal Date Time format into the specific file date format (ddMMyyyy) that matches the source file naming convention. Fortunately, Azure Data Factory allows us to perform such date transformations using expressions in the Pipeline Expression Builder. There, we can apply a date conversion function to dynamically transform the universal date format into the required format before concatenating it into the final URL.
+
+In the next step, we will focus on how to convert the universal date format into the desired 01012023 format inside ADF, so that the pipeline can automatically generate the correct file names and load the appropriate files without any manual input.
+
+# **L) Formatting DATETIME Values Using Advanced Expressions and Date Functions**
+
+We have passed the source file date parameter in the ACM Universal Date Format, and we have used that universal date format parameter inside the source dataset relative URL. Here, we concatenated the folder name, file name, and file date. When running the pipeline previously, it replaced this file date value with the actual date value that we had passed. However, the source file name does not exist in this universal date format — instead, it exists in the “0101 2023” format. Therefore, we need to convert our pipeline parameter value, specifically this file date value, from the universal date format into this specific format.
+
+That conversion can be done inside Azure Data Factory if you closely monitor it. We are trying to extend the complexity of developing the pipeline and configuring it specifically in the Pipeline Expression Builder. At first, we just mapped individual parameters to single dataset parameters. Then, we concatenated four parameters together and passed them as a single parameter to the source dataset relative URL. Now, we are going to apply a function specifically on one of the parameters in the pipeline to convert from the universal date format into the file-specific date format. So, we need to convert this one format into that format.
+
+Probably, I will copy these values here so that we know what we are trying to achieve — what is our input and what is our expected output. We need to extract the month part first, then the date part next, and then the year part. We need to convert the format coming from the source into this new format. We don’t need to write any custom code for this — there are inbuilt functions available in Azure Data Factory. We just need to know how to use them and how to configure them, just like how we configured the concatenation function earlier.
+
+This time, we are working with a date-specific function. You can look at the Date Functions group, and in fact, the first function there is formatDateTime(). This function will format an input date that comes in a proper date-time format into any other format that you would like to convert to. There are many inbuilt formats available, and I will provide the link for the various date formats in the resources section of the course. But for our specific case, we are particularly interested in the month part, the date part, and the year part of the pipeline parameter value coming in.
+
+So, I am just adding some entries here so that you can clearly see where we are going to apply the function. We are going to apply the function on the relative URL file date. Click in front of that pipeline parameter and click the formatDateTime function. Whenever you click this specific function, it automatically comes with opening and closing parentheses together. Remove the closing parentheses temporarily, because we need to complete the function configuration first — we will reapply the closing bracket later.
+
+From this input date format, I am interested in extracting the month values in digit format, the date values in digit format, and the year values in digit format as well. Once done, I will close my function configuration and remove the default values that we copied earlier. Now, the function is valid. It will convert the pipeline variable value from the Universal Date Format into our source file date–specific format.
+
+We can use the same function in our sink as well because we are also using the pipeline file date parameter in the sink to form the output file name. So, go to the sink and click the file name again. This file date value can be replaced with the formatDateTime() function using the specific format we just applied.
+
+Now, if we run this pipeline, it will read the 1st of January 2023 source file correctly. Because we are passing 1st of January 2023 as the universal date here, when we run the pipeline, it will be able to copy the file properly and put it into the landing layer without any errors.
+
+If you come and refresh the “lab three” folder, you will notice that only the “0101 2023” file was modified today. The previous load of the 2nd of January file remains unchanged, but in this run, only the current file has been loaded. If you look closely, the formatDateTime() function we applied in both the source and sink is exactly the same — it’s the same expression, the same function, using the same pipeline parameter, and the same format.
+
+However, since we used it twice, there’s repetition in the code. If you find yourself repeating anything in the pipeline configuration, it’s better to create a pipeline variable to store that function result so that it can be reused wherever needed. Repetition of the same function multiple times should be avoided. Therefore, we will move the formatDateTime() function into a pipeline variable, and then we can reuse it in both the source and the sink in the next section.
+
+# **M) Configuring Pipeline Variables and SET VARIABLE Activity**
+
+Instead of deriving the file date value separately in both the source and sink, I would like to derive it once and reuse it across both. To achieve that, Azure Data Factory (ADF) provides the flexibility of using variables. The key difference between parameters and variables is that parameter values are passed only once at the runtime of the pipeline, and these parameter values cannot be changed afterward. If you take a closer look at our setup, we have reused parameters inside the pipeline code, but we never tried to modify their values. However, with variables, we can change their values dynamically during the pipeline execution.
+
+So, in our case, we need a variable that can read the data from the pipeline parameter (specifically, the relative URL file date) and convert it into the specific format required to read the source file. To create this variable, click outside any activities in the pipeline and go to the Pipeline Settings. In the settings panel, navigate to the Variables tab, which is the second tab. Here, you can create a new variable. Follow standard naming conventions — since this variable is going to modify the relative URL file date, I’m copying that pipeline parameter value here to logically relate it. You can provide a default value if needed, but the main advantage of a variable is that you can change its value inside the pipeline using an activity called Set Variable.
+
+Now, we are expanding our pipeline skills. So far, we have focused mainly on the Copy Data activity, which is one of the most important activities in ADF. That’s why we’ve spent so much time learning it with multiple variations. But now, we’re going to learn about the Set Variable activity. Drag and drop the Set Variable activity into the pipeline and name it logically. Then, go to the Settings section. You will see the list of pipeline variables that you’ve already created. If you haven’t created a variable yet, you can also create a new one directly from this panel. As soon as you create it, it will appear under the pipeline variables section.
+
+You’ll also notice an option called Pipeline Return Value, but we’ll discuss that later in the course. For now, let’s focus on how to set the value for this pipeline variable. Click on the variable value field — it will open the Dynamic Content window, the same one we used earlier for configuring expressions in the Copy Data activity. Here, we can directly convert the parameter using the formatDateTime() function. It’s a good practice to apply the conversion logic here itself. From the list of functions, choose formatDateTime(). The input value for this function will be the relative URL file date parameter, and we’ll format it such that it first takes the month part, then the date part, and finally the year part.
+
+Now, we have successfully created the variable. We no longer need to derive the same value repeatedly inside the Copy Data activity for both source and sink. We can reuse this pipeline variable across all activities in our pipeline. To use it, we simply connect the output of the Set Variable activity to the input of the Copy Data activity. Then, inside the Copy Data activity, go to the Source tab. Instead of deriving the file date value from the file parameter, replace it with the pipeline variable — since it’s already deriving the same value, but now in a single reusable step.
+
+If you observe carefully, when building expressions now, you have access to all available options such as parameters, variables, and even system variables, which we’ll learn about later. Along with those, you’ll always have the inbuilt functions available. This means the value we are using now is derived through a combination of a pipeline parameter and a pipeline variable together. Similarly, in the Sink, for the file name, instead of deriving the value again, we can directly use the pipeline variable value.
+
+Now everything will work fine. Before testing, let’s go to the landing container and clear all existing files so that we can retest from scratch. When you debug the pipeline, even if you don’t pass any value manually, it will take the default value defined in the pipeline parameter. The pipeline should now read the “1st of January” file from the HTTP web server and load it into the landing container. Once the run completes successfully, you will see that the specific file has been copied properly.
+
+If you look closely at the pipeline Run Details, you’ll notice the additional Set Variable activity we just added appearing there. You can view its input, which is the pipeline parameter value, and its output, which is the converted date format. The Copy Data activity also runs successfully. Now, if you go to the Landing → Labs → Lab3 folder and refresh it, you will see that the “1st of January” file has been copied.
+
+With this setup, we’ve successfully simplified our pipeline. However, there’s still one small part left to improve. Currently, the date value is still hardcoded — meaning, whenever we want to load the “2nd of January” file, we have to manually enter that date while debugging. This introduces one layer of user intervention that we still need to eliminate. Our next goal is to find a way to automatically pass these date values.
+
+To achieve that, we’ll use an ADF component called a Trigger. We haven’t learned about triggers yet, but we’ll start with an overview in the next section. Once we complete that part, we won’t need to manually run the pipeline anymore. The pipeline will automatically trigger itself — it will pass the “1st of January” value for the first run, the “2nd of January” value for the second run, and so on. As a result, it will automatically copy both files into the landing container in the Azure Data Lake Storage account. We’ll see how to implement this in the next lesson.
+
+# **N) ADF Triggers Overview**
+
+We have almost automated all of the pipeline parameter values except this relative URL file date because this is changing for each run. A new date value needs to come, so we need to find a way to do that one. We have got two file date parameters — one is source and another one is sync. We can delete the sync file date value because, from this date value, we have derived the variable value. This variable value is the one referenced in the source and target. So, we can remove the sync file date parameter in the pipeline. This is the advantage of using a variable — it reduces unnecessary additional parameterization. We can derive it once and reuse it multiple times. So, we will delete the sync file date pipeline parameter.
+
+Now, the only parameter we need to automate is passing the value for this relative URL file date value. Otherwise, when loading multiple files, you need to debug each time and pass that value manually to load the new set of source files. We need to automate that. What we are going to do is learn a new Azure Data Factory component called a trigger. A trigger is a component at the top of the pipeline that automatically runs the pipeline depending on the schedule that we set inside it. Once the trigger is set up, we don’t need to click the debug button manually. After setting up the trigger, it automatically runs the pipeline and also automatically passes values to all of these pipeline parameter values, including the source file date value.
+
+Let us start by creating a new trigger. The trigger option now is just running the pipeline via a single trigger. It won’t run at regular intervals, so we’ll explore creating a new trigger, and then we will come back later and see the trigger. At this moment, it doesn’t have any major significance — it’s equivalent to debug, but you can see how it runs in real time after setting up the trigger. So, if you click the New/Edit button, you can choose New Trigger. We would like to create one because we don’t have any trigger created yet. It will say something like TRG_Daily_Pricing_Load — we’ll give it a reasonable name for the trigger.
+
+There are four types of triggers available. The first one is Schedule Trigger, the next one is Tumbling Window Trigger, and we will see the difference between both of them because it’s a little relevant to this specific scenario. We will see the Storage Events and Custom Events triggers later in the course, so for now, we’ll focus on the Schedule Trigger. The Schedule Trigger is one of the basic types of ADF triggers. You can start the job from the start date that we set. For example, if the current time is 9:24 PM, you cannot set the start date in the past. You can’t set something before this 24 minutes — it needs to be in the current date or a future date.
+
+For example, I can start to run this pipeline from tonight at 10:00 PM. Now, which time zone is this time related to? Because we are in the UK, it takes the default global time zone, which is UTC+0. There are different time zones available, and you can choose the one that fits your need. For me, UTC+0 is optimal, so I’ll choose that. Next is Recurrence — how frequently the pipeline needs to run repeatedly from this start date. For instance, if you set it to every 15 minutes, it will run at 10:00, 10:15, 10:30, 10:45, and so on. In our case, we don’t need it to run every few minutes. It needs to run once every day, so we can set it to one day. If within that day you want to execute at specific hours or minutes, that can also be set here.
+
+If you want to specify an end date, you can do that as well. This means that after the specified date, the trigger won’t work — it won’t automatically run the pipeline anymore. However, we are not going to use the Schedule Trigger for our scenario because our first file date starts from 1st January 2023, which means we need to go back almost a year. The Schedule Trigger cannot run on past dates, so we need to use the next type of trigger — the Tumbling Window Trigger.
+
+Before moving on, I would also like to mention that the Schedule Trigger will kick off at the specified time every day starting from the configured date if we set it that way. But we are not going to use the Schedule Trigger now — we will use it later in the course. For this specific example, we are going to use the Tumbling Window Trigger in our scenario. So, in the next lesson, we will go through the overview of the Tumbling Window Trigger and then create one for our pipeline.
+
+# **O) Create & Configure Tumbling Window Trigger**
+
+Let’s explore the properties of the Tumbling Window Trigger. First, I am going to rename this trigger to TumblingWindow_Trigger_DailyPricingLoad. The main difference between a Schedule Trigger and a Tumbling Window Trigger is in how they determine when to run. A Schedule Trigger starts running at the specific start time you set and repeats at the interval you define. For example, if the start time is 10:00 PM today, the next run will be tomorrow at 10:00 PM, and so on.
+
+The Tumbling Window Trigger, on the other hand, calculates runs based on the periodic difference between the start date and the recurrence interval you define. It doesn’t start immediately at the start time; instead, it waits until the recurrence period ends before executing. For instance, if the start date is 10:00 and the recurrence is every 15 minutes, the trigger will execute at 10:15 — not at 10:00. Another advantage of the Tumbling Window Trigger is that it allows starting from historical dates, which is exactly what we need because we want to load files starting from 1st January 2023. We will set the start date to 1st January 2023, 00:00:00, with a recurrence of 24 hours since our source files arrive daily.
+
+We also need to specify the end date; otherwise, the trigger will continue to run indefinitely. For this example, we only have two files to load, so we will set the end date accordingly. One important point to note is that the first run of the Tumbling Window Trigger happens at the end of the first recurrence window. That means the file for 1st January will only be loaded at 2nd January, 12:00 AM, and the 2nd January file will be loaded on 3rd January, 12:00 AM. This behavior is inherent to how the Tumbling Window Trigger works — it waits for the completion of the recurrence period before kicking off the pipeline.
+
+There are some advanced properties in the trigger configuration. For example, Delay allows you to delay the start of the trigger, which can be useful if multiple triggers are dependent on each other. Maximum Concurrency defines how many pipeline runs can execute simultaneously. For example, if your data supports it, you could process 50 days’ worth of files in one run by setting maximum concurrency to 50. For now, we will set it to 1 since this is the first time using this trigger.
+
+Another important property is the Retry Policy. If the Copy Data activity fails (for instance, if the HTTP web server is temporarily unavailable), the pipeline can automatically retry execution based on the retry count and retry interval you configure. For example, with a retry count of 1 and a retry interval of 30 seconds, the pipeline will wait 30 seconds and automatically retry the failed run.
+
+Once we have set all the basic properties, clicking OK will prompt us to pass values for all pipeline parameters. Most of these parameter values we already know, except the Relative URL File Date, which changes for each run. For that, we will use the date value associated with this trigger, which allows the pipeline to automatically pick the correct date for each run. In the next lesson, we will start setting the values for each pipeline parameter and configure the trigger to automatically handle the file date.
+
+# **P) Passing Tumbling Window Trigger System Variables To Pipeline Parameters**
+
+When setting up the trigger, it prompts for values for all the pipeline parameters. This is a one-time setup—once configured, you don’t need to pass these values again for subsequent runs. The trigger will automatically use these values every time the pipeline runs until the trigger’s end date.
+
+For most parameters, the values are straightforward. For example, the sync container name can be set to landing, which is the container in the Data Lake Storage where the files will be copied. The folder name is labs/lab three, and the file name format remains consistent across runs. The file type for both source and sink is .csv. None of these values change per run.
+
+The only value that changes for each run is the relative URL file date. The Tumbling Window Trigger has inbuilt properties—window start time and window end time—that help automate this. These properties track the start and end of each recurrence period. For example, if the trigger runs every 24 hours and the first run starts at 2:00 AM, the first run’s window start and end times are automatically set. For the next run, the window start and end times automatically increment by 24 hours.
+
+This makes the window start time an ideal candidate for the URL file date because it automatically reflects the correct date for each run. To reference this value in the pipeline, you use the syntax:
+
+@trigger().outputs.windowStartTime
+
+This inbuilt property of the trigger automatically passes the correct date to the pipeline, eliminating the need to manually input 1st January, 2nd January, or any subsequent dates. Once this is set, publishing the trigger enables it to run the pipeline automatically according to the schedule.
+
+Before the pipeline runs, it’s a good practice to clear the target folder (labs/lab three) so you can clearly observe the pipeline’s effect. After publishing, you can view or edit the trigger settings anytime. Changes, such as updating the end date, are applied automatically, and the trigger continues from where it left off. This makes the Tumbling Window Trigger a powerful component in Azure Data Factory for automating time-dependent data processing without manual intervention.
+
+In the next lesson, we will start the pipeline and observe it executing automatically with the trigger passing the dynamic file date.
+
+# **Q) Monitor Automated Pipeline Runs Via Tumbling Window Trigger**
+
+As soon as you click Publish, all the trigger changes are applied to the pipeline. The trigger automatically starts running the pipeline. However, unlike debug runs, you won’t see the output in the usual output window. To monitor the triggered runs, you need to switch over to the Monitor tab and check the Trigger Runs section. Once published, the trigger will start the pipeline within a few seconds.
+
+After publishing, if you go to Monitor, you can see that the first run has already started. Looking at the parameter values, you’ll notice that the relative URL file date is automatically passed as 0101 2023, which is exactly what we needed. The remaining parameters are mostly fixed, so you don’t have to worry about them for each run. Once the first run completes, you can check the landing container in the Data Lake Storage, and you’ll see that the first file has been successfully loaded. The process is very fast, and subsequent runs automatically pick up the next date values—for instance, the second run passed 0102 2023 automatically.
+
+By using this approach, you can automate the loading of a year’s worth of data just by adjusting the end date in the trigger. The trigger is a reusable ADF component, similar to a linked service, and can be used across multiple pipelines. You can also create or edit triggers under the Manage tab. In this case, we created the trigger directly from the pipeline, and once published, it appears immediately and starts running according to the schedule.
+
+With this setup, the pipeline is fully automated—no user intervention is required. It automatically identifies changes in the source file names (within the configured naming convention) and copies the files into the landing container in the Data Lake Storage account. This achieves exactly what we intended: seamless, automated file ingestion.
+
+The only limitation is that this pipeline currently works only for files with the specific name pattern configured in the trigger. If additional files with different names exist on the HTTP web server, they won’t be picked up automatically because the trigger is fixed to a specific naming convention. In the next section, we will explore how to handle multiple file types and dynamic file names in the HTTP web server while maintaining full automation without user intervention.
