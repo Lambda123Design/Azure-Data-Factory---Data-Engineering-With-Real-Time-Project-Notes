@@ -25,6 +25,24 @@ This Repository contains my Notes of "Azure Data Factory - Data Engineering With
 
 **E) Summary**
 
+**III) Azure Data Factory Introduction**
+
+**A) Azure Data Factory Studio Overview**
+
+**B) Azure Data Factory Pipeline Overview**
+
+**C) Copy Data Activity - Configure Source Dataset**
+
+**D) Copy Data Activity - Configure Sink Dataset**
+
+**E) Debug Pipeline**
+
+**F) Recap Data Factory Components**
+
+**G) Recap Copy Data Activity - Load JSON Data**
+
+**H) Azure Data Factory Components Summary**
+
 
 
 
@@ -266,3 +284,111 @@ Consider the container as the root directory of your storage system — it’s w
 Once the container is created, you can also add folders, subfolders, and files within it. This is where the Hierarchical Namespace feature comes into play. When we created the Data Lake Storage Account earlier, we enabled this option. If it wasn’t enabled, the option to create directories (folders) inside the container would not appear, and you would only be able to store flat files.
 
 Now that our storage setup is ready and the container structure is in place, we are fully prepared to begin development. In the next lesson, we’ll start using Azure Data Factory to build and automate our data workflows for the Landing Layer.
+
+# **III) Azure Data Factory Introduction**
+
+# **A) Azure Data Factory Studio Overview**
+
+We are particularly focusing on building the first layer in the data analytics project, which we call the landing layer. We have already created the two resources required to build this layer. Now, we are going to perform specific operations in this layer using these two resources. We will use Azure Data Factory and Azure Data Lake Storage to extract data from a web service and ingest it into the landing layer in our Data Analytics platform.
+
+To start, log in to the Azure portal at portal.azure.com using your user ID, and you will arrive at the home page. The most recently created resources will be displayed since we created them last time. This is the first time we are opening Azure Data Factory. As a best practice, any service you open in the Azure portal should always open in a new tab to ensure that any work you are doing on the current page is not lost.
+
+When you open Data Factory, options will appear on the left-hand side of the screen. Most of these options are common across all Azure resources, including Azure Data Lake Storage accounts. Common options include Overview, Access Control, Alerts, Metrics, and Networking. Depending on the type of resource, there may be additional options as well. These properties are helpful to set security on resources, defining who can access them and through which networks they are available. For example, you can choose whether a resource is accessible via a private or public endpoint. We will configure these security settings later in the course, but for now, we can leave them as they are.
+
+Our main focus is to read data from a web service using Data Factory and ingest it into the Azure Data Lake Storage account. To accomplish this, we need to use the Data Factory Studio, which provides a separate interface for developing all Azure Data Factory code. When you open Data Factory Studio, a window will appear with some notifications about new features. You can close these notifications for now.
+
+Within the studio, five different tabs are available. While the home tab is not essential for our current task, it provides a good opportunity to explain the logical definition of Azure Data Factory. Azure Data Factory allows you to ingest data from any source system into a data analytics platform. It also provides the capability to transform source data into any required format to extract useful information. Additionally, it can orchestrate the code you develop, ensuring it runs automatically on a daily basis to process new data from source systems. Based on these functionalities, Azure Data Factory can be defined as a data integration and orchestration service.
+
+When you click any of the available options in the studio, it enables a template-based interface for developing Data Factory code. While this interface is useful, I prefer to develop code using the Author tab, which provides full control over the code development process. In the next lesson, we will explore the Author tab in detail and review all the components available in Azure Data Factory.
+
+# **B) Azure Data Factory Pipeline Overview**
+
+Just he explained basics about Activities, Parameters, Properties of Pipelines in Azure Data Factory (No Transcript in Video)
+
+# **C) Copy Data Activity - Configure Source Dataset**
+
+We have dragged the Copy Data activity from the Activities section into the pipeline pane. When you click on the Copy Data activity, the configuration settings associated with this activity appear. If you want to view the configuration settings of the pipeline itself, click somewhere outside the activity in the pipeline design page, and the settings will change to reflect the pipeline-specific configurations. To switch back to the activity-specific configuration settings, simply click on the activity again, and the settings for that specific activity will appear. Here, it is asking for a name, and we will give it a logical name, as we are trying to copy the source pricing data. If any specific settings are not explained, you can leave them as default for now.
+
+Next, we move to the Source tab, which asks where our source data exists. According to our design, it exists as a CSV (comma-separated) file on an HTTP web server. Since Azure Data Factory does not inherently know the location of our source data, we create another component called a dataset. This is the third component we are learning in Azure Data Factory, after pipelines and activities. A dataset represents the actual data we are reading or writing, including its format and storage location.
+
+When you start creating a new dataset, it asks where this dataset exists and in which data store it is stored. In our case, it exists on the HTTP website, so we select “HTTP” as the data store. The next option asks for the format of the source data, and since it is a comma-separated file, we select “Delimited Text.” After creating the dataset, we give it a proper logical name.
+
+At this point, we need to configure one more component called a linked service. While the dataset specifies that the data exists on an HTTP web server in delimited file format, it does not specify how to connect to that web server. A linked service is used by Azure Data Factory to establish this connection. Since we do not have a linked service for this web server yet, we create a new one. Clicking “New” prompts for a name, which we give logically as “HTTP Source.” Based on the selected data store, we then provide configuration values, such as the base URL, which is the root URL of the web server.
+
+In real project development, all this information will be provided to us. Here, we only provide the base URL and not the complete file name. This allows the linked service to read multiple files located in different folders within the web server. No specific authentication has been set, so the web server can be accessed without a username or password. We then test the connection, ensuring that our linked service is correctly established.
+
+With the linked service and dataset created, we now configure the dataset-specific properties. These include specifying the relative URL, which indicates the path of the actual file on the web server. While the linked service connects to the base URL, the dataset specifies which specific file to read. The exact parameters required depend on the type of dataset—in our case, an HTTP dataset asks for the relative URL to access the specific file.
+
+After configuring the source, the next step is to configure the sink, which represents the destination in Azure Data Factory. The sink configuration will be covered in the next lesson.
+
+# **D) Copy Data Activity - Configure Sink Dataset**
+
+We are working on creating an Azure Data Factory pipeline to ingest data from an HTTP web server into the Data Lake Storage landing layer. In the previous lesson, we configured the HTTP web server dataset and linked service. Now, we are going to configure the dataset for our sink.
+
+Returning to our pipeline in the Copy Data activity, we have already configured the source. If we go to the sink, it asks for the sink dataset type. In Azure Data Factory, the sink represents the destination for the data. While our source was HTTP, the sink in this case is Azure Data Lake Storage Gen2, where we will store the file we read from the HTTP web server. We select Azure Data Lake Storage Gen2 as the data store, and the file type is again a delimited text file, matching the source format. We give a logical name to our dataset, ensuring there are no spaces in the name, as it will not accept them.
+
+Next, we need to create a linked service for the sink, similar to how we created one for the HTTP web server. Since there are no existing linked services for this Data Lake Storage Gen2 dataset, we create a new one. We provide a logical name and select the subscription where our storage account exists. This is the same Data Lake Storage account we created to store all the source files received. After entering the details, we test the connection to ensure it successfully connects to the storage account and then click the Create button.
+
+After creating the linked service, the next step is to specify the file path. Unlike the source dataset, which required a relative URL because it was on the HTTP web server, the sink dataset exists in the Data Lake Storage account. We choose “landing” as the folder path where the files will be stored. For the import schema, we select “None” for now, since we are simply moving files from source to sink without processing individual columns.
+
+With this, the sink dataset has been successfully configured, completing the configuration for the Copy Data activity in our pipeline.
+
+# **E) Debug Pipeline**
+
+Now that we have configured both our source and sink datasets, we can open the source dataset from the pipeline interface to view the properties we have set. The source points to the relative URL, and the base URL is taken from the linked service. It is important to note that each dataset is associated with a linked service because the dataset represents the actual data, which may exist inside or outside Azure. For our source, we created a linked service to connect to the HTTP web server. For our sink, we created a linked service to connect to the Azure Data Lake Storage account we created inside Azure.
+
+At this point, we have configured the necessary parameters to ingest data from the HTTP web server into the landing layer of our data analytics platform. There are additional settings available for the Copy Data activity, which we will cover in the appropriate scenarios later. For now, we can leave them as default. The next important step is to click “Publish All” to store the pipeline code permanently in the Azure Data Factory repository. If we do not publish and close the interface, all development work will be lost. It is good practice to keep clicking “Publish All” as you progress through pipeline development.
+
+Once published, running the pipeline will read the file from the HTTP web server and store it in the Data Lake Storage Gen2 account. To verify, open the Azure Data Lake Storage account and navigate to the container. This is where the landing folder was created. Currently, there may be no files or folders, except for test folders like “labs” if any were created during previous exercises. When the pipeline runs, the source file from the HTTP web server will be copied to the Data Lake Storage account.
+
+To run the pipeline, click the “Debug” button at the top of the pipeline interface. It is important to note that the user interface opens each component in a new tab—for example, opening the source dataset or sink dataset will create new tabs. When multiple pipelines exist, you will need to navigate through these tabs carefully to manage your work. Returning to the pipeline tab, clicking “Debug” brings up the pipeline configuration settings.
+
+Under the Output tab, you can see the run logs for each activity included in the pipeline. The input section displays details of the configuration, such as the mechanism and file type used for reading the source file. The output section shows the Data Lake Storage destination, including the number of records read and written, as well as throughput details. These details provide a quick summary of the source and destination data, helping identify if any data was missed or corrupted. In later lessons, we will explore these logs in detail when performing performance tuning of pipelines.
+
+After a successful pipeline run, refreshing the landing container in the Azure Data Lake Storage account will show that the source file has been copied from the web server. Even though we have not accessed the source file directly, Azure Data Factory reads it from the HTTP web server based on the relative URL specified in the source dataset configuration and loads it into the Data Lake Storage account. Files in the storage account can also be edited directly using the hidden edit button available when selecting a file.
+
+As part of this lesson, we have learned about the various Azure Data Factory components and how to use them to build a pipeline. We will revisit these components in a presentation to reinforce the concepts. Additionally, we will develop another pipeline from scratch to gain further familiarity. These example pipelines are designed purely for learning and do not represent real-time project pipelines. Their purpose is to help you understand the different components involved in Azure Data Factory.
+
+# **F) Recap Data Factory Components**
+
+In the previous lesson, we designed an Azure Data Factory pipeline to ingest data from an HTTP web server into the first layer of our data analytics project, called the landing layer. To support this, we created an Azure Data Lake Storage Gen2 account. To design the pipeline, we set up several Azure Data Factory components.
+
+The first component we created was a Linked Service. Although we created it while configuring the dataset, its main purpose is to establish connectivity between Azure Data Factory and the source or destination data store. We also created a separate linked service to connect to the Azure Data Lake Storage Gen2 account.
+
+Inside the HTTP web server, we have our source file. At this point, Azure Data Factory does not inherently know the name or type of the file. To represent the source or destination data, we use the Azure Data Factory component called a dataset. While creating the dataset, we also created the linked service, which is often easier for first-time setups. Linked services can also be created separately and later mapped to a dataset, but in this case, we created both together.
+
+We planned to store the CSV file in our landing container in the first layer of the data analytics project in delimited text format. Since Azure Data Factory does not know the format of the target data, we created a dataset to represent it as well. Thus, we have two datasets (source and sink) and two linked services (source and destination).
+
+To move data between the source and destination, we used activities in Azure Data Factory. One of the key activities is the Copy Data activity. Within this activity, we specify the source dataset and the target dataset. During pipeline runtime, Azure Data Factory uses the information in the datasets and linked services to connect to the HTTP web server, read the specific source file, and copy it into the landing container in Azure Data Lake Storage. The linked services are responsible for connecting to the actual data stores during execution.
+
+Now, if the source file exists in JSON format instead of CSV, and we want to copy this JSON file into the Data Lake Storage landing layer, we can use the same setup with the same source and destination services. However, some additional steps are required to handle the JSON format correctly in the pipeline. These steps will be covered while developing the pipeline.
+
+# **G) Recap Copy Data Activity - Load JSON Data**
+
+We are going to develop a second pipeline to load a JSON file that exists in a different folder on the HTTP web server. The base URL is the same as our previous pipeline, but the JSON file is located in the labs/lab2 folder instead of labs/lab1. Since the file format is JSON, we need to develop a pipeline to handle it, and we will first go through the theory before creating the actual pipeline.
+
+Because the source file is in JSON format, we cannot reuse the dataset created in the previous step for the delimited text file. We need to create a new dataset in Azure Data Factory to represent this JSON source file. Similarly, we will store this JSON file in the same format in the Azure Data Lake Storage Gen2 account, which requires creating a new dataset for the target as well. However, we can reuse the same Copy Data activity as before. The linked services do not need to change because they are specific to the type of data store rather than the format of the data. One linked service per data store is sufficient to read different file formats. At runtime, Azure Data Factory will use the linked services to read from the source and write to the Data Lake Storage account.
+
+Before starting, it is better to close any open pipelines to avoid confusion. To create the new pipeline, you can either right-click or click the “New Pipeline” button and give it a name. We then use the same Copy Data activity by dragging it into the pipeline design pane. Once added, the settings window changes to display the configuration options.
+
+For the source, we need to create a new dataset because the JSON format is different from the previous CSV dataset. While you can create datasets directly from the pipeline, this time we will explore creating datasets separately and then mapping them in the pipeline. This helps in better organizing resources. The source dataset is located in the HTTP web server, and we give it a specific name, including the lab number for clarity (e.g., HTTP_JSON_Source_Pricing_Lab2). Existing resources and naming conventions can guide these details during hands-on practice.
+
+When configuring the source dataset, the link service for the HTTP source is reused. The relative URL is updated to point to the JSON file in labs/lab2. We do not import the schema since this is a file-to-file copy without column-level transformations. After creating the source dataset, it appears under the datasets folder.
+
+Next, we configure the sink dataset to store the JSON file in Azure Data Lake Storage. We select the data store as Azure Data Lake Storage, the format as JSON, and provide a logical name reflecting Lab2. We reuse the existing link service for the Data Lake Storage account and specify the landing folder as the destination. Once the sink dataset is configured, we map it in the pipeline, ensuring proper naming conventions to match the lab context.
+
+With the pipeline configured, running it will move the JSON file from the HTTP web server into the landing layer of the Data Lake Storage account. The pipeline creates a subfolder lab2 in the landing container and writes the JSON file there. To execute the pipeline, click the “Debug” button. The output window displays pipeline properties, run logs, input configuration (reader/writer details), and output statistics, such as the number of records read and written. After the run completes, refreshing the landing container confirms that the JSON file has been successfully loaded into lab2.
+
+For learning purposes, it is useful to note that not all activities in Azure Data Factory require datasets. Activities like “Set Variable” do not interact with datasets; they only set values used within the pipeline. In contrast, data movement and transformation occur primarily in the Copy Data and Data Flow activities, both of which require datasets. Depending on your requirements, you must identify which datasets are needed and which activity will perform the operation. Supporting activities assist the main data movement and transformation tasks, but do not perform data movement themselves.
+
+# **H) Azure Data Factory Components Summary**
+
+In this section, we got an introduction to Azure Data Factory (ADF) and started using it through the Azure Portal. When opening a Data Factory resource, there are several properties associated with it, although we did not explore all of them. The core development in ADF happens in the Data Factory Studio, where we create pipelines to perform specific operations. We primarily used the Author tab to develop these pipelines. Pipelines are logical arrangements of inbuilt activities available in ADF, allowing us to define workflows for data movement and transformation.
+
+We specifically explored the Copy Data activity to move data from an HTTP web server into the landing area of our data analytics project. The first component we learned about was the pipeline, followed by the activity, which is a unit of work within the pipeline. While configuring activities, we created datasets, which represent the source or sink data. Datasets use linked services to connect to the actual data stores at runtime, enabling reading or writing of data.
+
+We created two source datasets—one for a delimited text (CSV) file and another for a JSON file—and two corresponding sink datasets to store these files in Azure Data Lake Storage Gen2. Using these datasets, we developed two pipelines: one to load the CSV file and another to load the JSON file. The pipeline development process involves identifying the activity required for the operation, determining whether a dataset is needed, creating the dataset, choosing the data store, and configuring the linked service. These components can either be created while building the pipeline or independently before mapping them into the pipeline.
+
+Besides the Author tab, we also explored other tabs in Data Factory Studio. The Monitor tab allows us to track pipeline and activity runs, including run logs, the number of records read and written, and throughput. This tab can display pipeline runs from up to 30 days or for a custom date range. The Manage tab is used to define reusable Data Factory components, such as linked services, datasets, and other objects. Linked services, for instance, can be created here and later mapped to datasets within pipelines.
+
+The Home tab provides quick access to common tools, like ingesting data or initiating data flows. However, for proper development practices, we focused on the Author tab to create pipelines in a structured, developer-oriented approach. It’s important to note that the pipelines we developed in this section are not real-time project pipelines; they were designed to introduce the key ADF components—pipelines, activities, datasets, and linked services. Becoming familiar with these components prepares us to create actual ingestion pipelines for real-time projects, which will be covered in the next section.
