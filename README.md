@@ -79,6 +79,42 @@ This Repository contains my Notes of "Azure Data Factory - Data Engineering With
 
 **Q) Monitor Automated Pipeline Runs Via Tumbling Window Trigger**
 
+**V) Metadata Driven Data Ingestion Pipeline - HTTP Source**
+
+**A) Metadata Driven Ingestion Pipeline Overview**
+
+**B) Metadata Driven Ingestion Pipeline Requirement**
+
+**C) Create Metadata File**
+
+**D) Upload Metadata File and LOOKUP Activity Overview**
+
+**E) Configure LOOKUP Activity - Read Metadata File**
+
+**F) Configure LOOKUP Activity Settings & Read Metadata File Values as Array**
+
+**G) Configure FOR EACH Activity to Loop Through LOOKUP Output Value Array**
+
+**H) Configure FOREACH Activity To Pass Metadata Values to Dataset Parameters**
+
+**I) Debugging Metadata Driven Ingestion Pipeline & Error Handling**
+
+**J) Organising Folder Structure in ADF**
+
+**K) End To End Metadata Driven Ingestion Pipeline - Create Metadata File**
+
+**L) End To End Metadata Driven Ingestion Pipeline - Create Datasets**
+
+**M) End To End Metadata Driven Ingestion Pipeline - Create Pipeline Part 1**
+
+**N) End To End Metadata Driven Ingestion Pipeline - Create Pipeline Part 2**
+
+**O) End To End Metadata Driven Ingestion Pipeline - Debugging And Error Handling**
+
+**P) End To End Metadata Driven Ingestion Pipeline - Create Tumbling Window Trigger**
+
+**Q) Data Ingestion From HTTP Web Server - Summary**
+
 
 
 
@@ -660,3 +696,359 @@ By using this approach, you can automate the loading of a year’s worth of data
 With this setup, the pipeline is fully automated—no user intervention is required. It automatically identifies changes in the source file names (within the configured naming convention) and copies the files into the landing container in the Data Lake Storage account. This achieves exactly what we intended: seamless, automated file ingestion.
 
 The only limitation is that this pipeline currently works only for files with the specific name pattern configured in the trigger. If additional files with different names exist on the HTTP web server, they won’t be picked up automatically because the trigger is fixed to a specific naming convention. In the next section, we will explore how to handle multiple file types and dynamic file names in the HTTP web server while maintaining full automation without user intervention.
+
+# **V) Metadata Driven Data Ingestion Pipeline - HTTP Source**
+
+# **A) Metadata Driven Ingestion Pipeline Overview**
+
+A quick recap of what we have done: we created a pipeline that can automatically pick up changes in source file names from the HTTP web server and copy them into the landing container in our Data Lake storage account. We first parameterized our source dataset and sink dataset to make the source connection values dynamic. Then, we created pipeline parameters to map these values to the datasets and set parameters on top of that.
+
+To automate the run, we included a tumbling window trigger. While setting this trigger in the pipeline, the trigger asks for values for each of the pipeline parameters. Most of the values are static and do not change for each run, such as the source file name. The only changing part is the file date value, so we are using one of the trigger window properties called window start time, which automatically updates for each run of the pipeline. We passed this property and used the Pipeline Expression Builder with the pipeline parameters to form the necessary source and sink connection values. These outputs were then mapped into the dataset parameters in the Copy Data activity.
+
+As a result, without any user intervention, the pipeline can start loading the source files with changing date values on a daily basis, and it has successfully loaded the data. However, the only constraint in this pipeline is that it will only load source files starting with a specific string value. In real-time projects, the source system often has more than one type of source file, which this pipeline cannot handle.
+
+In our case, we have two files capturing Indian pricing information for products. Additionally, there are two more files capturing international pricing information. These files have slightly different formats and different names, capturing product prices, countries, months, and date values. We need to bring these additional files along with the Indian pricing files, but the current pipeline cannot handle this scenario.
+
+To address this, we need to move all pipeline parameters—except the relative URL and file date—outside of Azure Data Factory (ADF). By “outside ADF,” we mean storing these parameter values in a plain text file, which will then drive the pipeline. Pipelines designed in this way are called metadata-driven pipelines.
+
+Before developing a metadata-driven pipeline, it’s important to understand what metadata is. For example, consider a product pricing file. The actual data in the file is the pricing information, while the file name, folder name where the file is stored on the HTTP web server, and file type are all metadata. Metadata is essentially data about data. To read or write the actual data, you need information about the file holding that data, such as its name, folder, and last modified date.
+
+In fact, in our current pipeline, all the configuration values we have used are metadata. For instance, the landing container name in the Data Lake storage account does not hold actual data but serves as a reference for where the data will be stored. The source files we are reading from the HTTP web server are also metadata inside the landing container. We created two layers of folders, Labs and Lab3; these folders hold the actual data but are themselves metadata. Similarly, the file name holding the actual data is metadata. In short, metadata acts as a pointer for processing any data.
+
+In real-time scenarios, multiple source files may arrive, sometimes in different formats. Therefore, to handle all these variations, we need to develop a metadata-driven pipeline. This requires moving all pipeline parameters outside ADF, storing them in a file, and learning how to pass these values from the external file into the ADF pipeline. We will cover the creation, formatting, and integration of these external parameters in the next lesson.
+
+# **B) Metadata Driven Ingestion Pipeline Requirement**
+
+We need to move all of the parameters that capture the metadata of the source and sink file names, except for the date value. The date value can be managed within the pipeline itself. Currently, the two types of source files we need to handle are: one starting with pw_mw_doctor and the other starting with global_pricing. All other parameters remain the same.
+
+You might ask why we can’t just create one more pipeline parameter, for example, relativeURLFileName_global, and store the source file name format like global_pricing. The issue is that the Copy Data activity source in the pipeline points to a single source file name. The file name is formed based on the file name, file date, and file type. You cannot pass two different file name parameters into a single Copy Data activity.
+
+Technically, it is possible to create another Copy Data activity and point it to the second file name. In this way, you could connect multiple Copy Data activities in the same pipeline, using one for pw_mw_doctor and the other for global_pricing. While this approach works, it is not elegant. For example, if a third file type is added in the future, you would need to create yet another Copy Data activity. This approach does not scale and is not a proper solution for handling multiple source file names.
+
+The solution is to develop a metadata-driven pipeline. To illustrate the improvement, we will create a clone of the current pipeline without saving any recent changes. This clone will allow us to see how moving the parameters outside the pipeline simplifies handling multiple file names. We will call this cloned version the M3B pipeline. It still uses the same source and sink datasets created for Lab 3. The only change will be in how parameter values are passed to the pipeline.
+
+As discussed, the metadata of the actual data files includes the source and sink file names. We will move all parameters except the file date outside the pipeline. We will start with the relative URL file name and sync file name parameters. By moving these parameters into a metadata file, the pipeline will be able to handle multiple source files with different starting names. The remaining parameters, which do not change between these two file types, will stay inside the pipeline for now.
+
+Next, we will create the metadata file for these two file name parameters, read the metadata file inside the pipeline, and pass the values to the source and sink datasets. Once this is working, we can gradually move the remaining parameters outside the pipeline. This step-by-step approach makes it easier to understand and implement a fully metadata-driven pipeline. In the next lesson, we will start by deleting these two file name parameters and creating the metadata file for them.
+
+# **C) Create Metadata File**
+
+We are now going to move the relative URL file name and sync file name parameters outside of ADF. For the time being, I am creating these two parameter values in a separate file, which will serve as our metadata file. Once this file is ready, we can use it to provide the values to the pipeline. First, I deleted these two parameters from the new pipeline. If required, we can still refer back to the original Lab 3 pipeline. After deleting these parameters, the source and sink mapping becomes invalid because the parameters are no longer available. For now, we will focus entirely on creating the metadata file, and later we will fix the pipeline to read the specific values from it.
+
+We have two different types of files that need to be loaded into the Labs/Lab3 folder. One type starts with pw_mw_Doctor and the other starts with global_pricing. All other values for the pipeline have already been derived and do not need changes. The goal now is to handle the variation in the file names. For example, in one pipeline run, we need to pass the value for the pw_mw_Doctor file, and in another run, we need to pass the value for the global_pricing file. The sync file name will have corresponding values.
+
+To achieve this, we will create a JSON file to store these two different types of file names in a structured format. The JSON file will use an array of documents, where each document represents a file type. Each element inside the array is a key-value pair. For example, relativeURLFileName is a key, and its value is the file name, enclosed in double quotes because it is a string. Similarly, the syncFileName is another key, with its value also enclosed in double quotes.
+
+The first document in the JSON file will represent the pw_mw_Doctor file. The second document will represent the global_pricing file. Each document is separated by a comma in the array. While there are other ways to store metadata—such as CSV files or databases—the JSON format is popular because it is easy to structure and read inside a data pipeline.
+
+Once the JSON metadata file is created with two documents, it is stored locally on my machine. The next step is to read this file inside ADF, since the file name parameters were removed from the pipeline parameter list. This approach allows us to handle multiple file types dynamically via the metadata file instead of manually updating pipeline parameters. In the next lesson, we will see how to read this JSON file inside ADF and pass the values to the source and sink datasets.
+
+# **D) Upload Metadata File and LOOKUP Activity Overview**
+
+We have created our metadata file to store the different source file names existing on the HTTP web server. The next step is to read this file inside Azure Data Factory (ADF) and extract the values. These values will replace the pipeline parameters that previously held the file name.
+
+Currently, ADF can read from data stores using linked services, which establish connectivity to any source or sink. We have created two linked services: one pointing to the HTTP web server, which we do not control (in fact, we never log in), and another pointing to our Data Lake storage account, which we do control. The linked service to the HTTP server allows us to bring files from the web server into our landing container. The linked service to the Data Lake provides full control over folders and files, allowing us to develop our data analytical platform.
+
+The metadata file we created is not actual data; it only contains the source file names from the HTTP web server. Therefore, it should not be stored in the landing container, which contains all the source data files. Instead, we will create a separate container called ADF Metadata in our Data Lake storage account. We then upload the JSON metadata file from our local machine into this container. This allows ADF to read the metadata file directly from the Data Lake.
+
+Once the metadata file is uploaded, we need an activity inside ADF that can read this file. Unlike the Copy Data activity, which simultaneously reads from a source and writes to a sink, we need an activity that can purely read data without writing. For this purpose, we use the Lookup activity. The Lookup activity reads data from a source file and makes it available within the pipeline.
+
+To configure the Lookup activity, we must first create a dataset pointing to the metadata JSON file in the ADF Metadata container. None of the datasets we created so far (pointing to the HTTP web server source or the Data Lake sink) reference this new metadata file. After creating this dataset, we can configure it in the Lookup activity. This allows the pipeline to read the actual source file name values from the JSON metadata file and later use them in the Copy Data activity for the source and sink.
+
+In the next lesson, we will cover configuring the dataset for the Lookup activity and using the values read from the metadata file inside the Copy Data activity to dynamically read the actual source files.
+
+# **E) Configure LOOKUP Activity - Read Metadata File**
+
+We have created a Lookup activity to read the metadata file that we uploaded into the Data Lake Storage account. There are a few limitations to be aware of when using the Lookup activity. This activity is not meant for heavy data processing; it is a support activity used to read small datasets. The maximum size for a dataset should not exceed 4 MB, and if there are more than 5000 rows, the activity will process them in batches of 5000 rows. The key limitation to keep in mind is the 4 MB size.
+
+In our case, the metadata file is very small, only about 179 bytes, which is far below the 4 MB limit, so using the Lookup activity is perfectly fine. The next step is to create a dataset to read the metadata file. Since we do not yet have a dataset for this, we will create one. Our source data is in Data Lake Storage Gen2 and in JSON format. We will name the dataset dataset_ADLS_Json_Pricing_MetadataFiles_Lab3. It’s good practice to include the lab reference in the dataset name, as all datasets related to Lab 3, Lab 3A, or 3B will point to Lab 3.
+
+We already have a linked service to connect to the Data Lake storage account. While browsing, we will not use the landing container. Instead, we select the ADF Metadata container where we uploaded the metadata file and choose the file. At this point, we do not need to parameterize the dataset. If new file names come into the source system, we can simply add another entry to the JSON file without creating a new dataset. Therefore, we avoid parameterizing the dataset now, though we may consider it during deployment if necessary.
+
+After creating the dataset, you can preview the data to ensure the JSON metadata file is being read correctly. Once verified, these values can be used within the pipeline to replace the pipeline parameters that previously held the file name. Before using the lookup output in the Copy Data activity, we will run the Lookup activity separately to observe its output. This is significant because it is the first time we are using the output of one activity as input to another activity in the pipeline.
+
+To test this, I connected the Lookup activity to a Set Variable activity temporarily. In ADF, the red circle button allows us to run the pipeline up to a specific activity. We can run it only until the Lookup activity to check the output without executing subsequent steps. Observing the output of the Lookup activity is crucial, as these values will later be mapped into the source and sink datasets of the Copy Data activity. The actual use of the Lookup output in the Copy Data activity will be covered in the next lesson.
+
+# **F) Configure LOOKUP Activity Settings & Read Metadata File Values as Array**
+
+Let's debug the pipeline to see how the Lookup activity is running. At this point, the pipeline still contains all the pipeline parameter values, which is fine because none of the Copy Data activities will execute during this debug run. By leaving the parameters at their default values and enabling the debug option, we can observe the output of the Lookup activity.
+
+When the pipeline runs, we can examine the input of the Lookup activity to see which source data and source file it is configured to read. However, our main interest is in the output of the Lookup activity. We can copy this output into a notebook or a text editor to review the values. Initially, the Lookup activity only reads the first row of the JSON file. This is because the default setting in the Lookup activity is “First row only”, which is checked by default. Since our metadata file contains two rows (two source file names), we need to uncheck this option to ensure that the activity reads all data.
+
+After unchecking “First row only” and running a quick debug, the Lookup activity reads both source file names correctly. The output shows a value array, which contains two elements: the first element corresponds to the pw_mw_Doctor file name, and the second element corresponds to the global_pricing file name. This array structure is crucial because it is a complex data type in ADF.
+
+Previously, variables we used were simple data types, such as a single string or integer. However, the output of the Lookup activity is an array, and each element in the array has a key-value pair. We cannot directly map this array output into a Copy Data activity because the Copy Data activity expects a simple data type, not an array.
+
+To use these values, we need to replicate a programming-style loop in ADF. We would iterate over the array, assign the key-value pairs to variables, and then process each element individually. This approach allows us to dynamically use both source file names from the metadata file in the Copy Data activity.
+
+To prepare for this, I plan to rearrange the pipeline activities. The Set Variable activity should run first because it only executes once. If we connect the Lookup activity output directly to the Copy Data activity, the source shows the value array, which cannot be directly used. Attempting to map the array to a single value will cause the pipeline to fail, generating an error. In the next lesson, we will run the pipeline with this mapping to observe the error and then discuss how to properly handle the array output from the Lookup activity.
+
+# **G) Configure FOR EACH Activity to Loop Through LOOKUP Output Value Array**
+
+We tried to map the output of the Lookup activity, which is an array value, directly into the file name property of the Copy Data activity. When we debugged the pipeline, it failed as expected because the Copy Data activity cannot accept an array as a value—it expects a single string.
+
+Looking at the error details, the pipeline was attempting to concatenate the folder path (Labs/Lab3) with the entire array value, treating it as a file path. Naturally, this failed because the source system only contains individual file names, not the entire array. What we need is to extract only the relative URL file name from the first element of the array, rather than passing the entire array.
+
+To achieve this, we need to loop through the output of the Lookup activity and process each element individually. In ADF, we use the For Each activity for this purpose. Until now, we were mostly working with Move and Transform activities, but now we are exploring activities under Iterations and Conditions, which allow us to implement loops.
+
+The input of the For Each activity will be the value array from the Lookup activity. Inside the loop, we can reference individual columns from each element in the array. This is done using the Pipeline Expression Builder, which now supports activity outputs in addition to parameters, system variables, and other functions.
+
+We start by passing the lookup output.value array into the For Each activity. We can give the loop a descriptive name, such as IterateSourceFileNames. In the settings of the For Each activity, the main mandatory property is the Items, which defines the collection to iterate over. By referencing the value array from the Lookup output, the loop will process each element sequentially. For the first iteration, it will take the first element, and for the second iteration, it will take the second element. Once all elements are processed, the loop exits automatically.
+
+In the next lesson, we will see how to use the output of the For Each activity as input to the Copy Data activity, enabling the pipeline to dynamically read each source file from the metadata.
+
+# **H) Configure FOREACH Activity To Pass Metadata Values to Dataset Parameters**
+
+We configured the For Each activity to take the Lookup output array as input using the Pipeline Expression Builder. All previous activity outputs are available in the builder, and we are specifically interested in the value array, as it contains the file names we need to map in the Copy Data activity.
+
+Inside the For Each activity, any activity that needs to run as part of the loop must be placed in its sub-window. In our case, the Copy Data activity, which reads the source files and copies them into the landing container in the Data Lake storage account, needs to be inside this sub-window. To do this, we cut the Copy Data activity from the main pipeline and paste it inside the For Each activity’s sub-window. You can access this sub-window either by clicking the edit button inside the For Each activity or by editing through the activity section.
+
+Now, for the first run of the loop, the For Each activity will take the first element from the array. We map the relative URL file name from the item output to the source dataset parameter. Instead of directly using the Lookup output, we now reference it as item.relativeURLFileName. This allows each iteration to pick the correct file name from the array. Similarly, for the sync dataset parameter, we use item.syncFileName to reference the corresponding value from the current item in the loop.
+
+To summarize the setup: the Lookup activity reads the metadata JSON file, producing an array of two items. Since we cannot map the array directly into the Copy Data activity, we use the For Each activity to iterate over each item. Inside the loop, the Copy Data activity references the individual key-value pairs from the JSON file using the item object. The remaining pipeline parameters remain unchanged and are still used as before; only the file name values are now dynamically fetched from the metadata file.
+
+Regarding execution, if the sequential option is checked in the For Each activity, the loop will run one iteration at a time. If unchecked, it will run both iterations in parallel, effectively executing two instances of the Copy Data activity simultaneously. For the time being, sequential execution is enabled to observe the process step by step.
+
+At this stage, the pipeline does not yet include a trigger. The date parameter is still hardcoded, for example, 2023-01-01. During the run, the pipeline will copy both the local pricing data and the global pricing data into the landing folder, without requiring manual entry of the file names. The date parameter can later be automated using a trigger. In the next lesson, we will run the pipeline fully and observe the results in the landing container.
+
+# **I) Debugging Metadata Driven Ingestion Pipeline & Error Handling**
+
+Let's debug the pipeline and pass the default values to the pipeline parameters. Please note that the relative URL file date is set to 1st January 2023. Upon a successful run, the pipeline is expected to copy the two different source files corresponding to this date.
+
+We start the pipeline and configure the For Each activity to run the files sequentially. This ensures that only one Copy Data activity runs at a time. The first iteration of the loop loads the first file from the Lookup activity output, and once that is complete, the second Copy Data activity runs for the second file. As expected, the first file is processed successfully, and the second file initially fails. This is useful because it allows us to examine the error message and understand the root cause.
+
+Upon inspection, the errors occur while reading data from the HTTP web server. Looking closely at the request URL, it becomes clear that the issue is with the file naming in the metadata file. Specifically, the original source file names include an underscore after global_pricing, but this underscore was missing in the metadata JSON file. This is a simple error, but it prevented the Copy Data activity from finding the correct source file.
+
+The beauty of this metadata-driven approach is that fixing such errors is straightforward. We can directly edit the metadata file stored in the ADF metadata container in the Data Lake storage account. Simply adding the missing underscore resolves the issue—no changes to the ADF pipeline code are required.
+
+Next, we explore the parallel execution settings. By default, For Each can run multiple iterations in parallel. You can configure how many Copy Data activities run simultaneously using the batch count, but in our case with only two source files, it runs two Copy Data activities in parallel.
+
+After editing the metadata file to include the missing underscore and republishing it, we debug the pipeline again. Now, both iterations of the For Each activity should run successfully. During the debug run, the Lookup activity correctly reads both file names (including the underscores), and the For Each activity executes two Copy Data activities concurrently.
+
+At the end of the run, both source files are successfully copied into the Landing/labs_lab_three folder in the Data Lake storage account. One file represents the domestic product pricing, and the other represents global pricing. Currently, this process is limited to files for 1st January 2023 because the pipeline trigger to dynamically pass the relative URL file date has not yet been configured. That step will be implemented in the next lesson.
+
+This entire run highlights several important points about metadata-driven pipelines:
+
+Using metadata files allows you to manage source file names without changing pipeline code.
+
+Lookup activities provide array outputs that can be iterated using For Each loops.
+
+Sequential vs. parallel execution can be controlled to optimize pipeline performance.
+
+Errors due to incorrect metadata are easy to fix without touching pipeline logic.
+
+In summary, the pipeline now successfully reads the metadata file, iterates through each source file, and loads them into the landing folder, demonstrating a fully functional metadata-driven ADF pipeline for multiple source files.
+
+# **J) Organising Folder Structure in ADF**
+
+We can automate the pipeline run by adding triggers, which allows us to dynamically pass values for the file date parameter from the output of the trigger properties. When we try to include an existing trigger, we notice that it does not appear because a trigger, such as a tumbling window trigger, can only be mapped to one pipeline. If we want to use this type of trigger for a new pipeline, we need to create a new tumbling window trigger specifically for that pipeline.
+
+As we develop the final production-ready pipeline, we will expand our current setup. So far, we have only been processing two files as part of lab exercises. The final pipeline will be designed to handle a full year of data into our landing container. The approach remains the same: all parameters, except the date parameter, will be moved into the metadata file, allowing for a flexible and scalable design.
+
+Before building the production pipeline, it’s a good practice to organize the ADF workspace. We can create a folder structure under both Pipelines and Data Sets. During the learning phase, we have already created multiple pipelines (lab one, lab two, lab three) and several datasets just to understand different ingestion scenarios. For the final pipeline, we will create a clean set of pipelines and datasets without lab references, ensuring a professional, production-ready structure.
+
+To organize the workspace, we create a folder called Working Labs for all the pipelines and datasets developed during the learning phase. Pipelines can be moved into this folder either by dragging and dropping or by right-clicking and selecting Move Item. Similarly, we create a corresponding Working Labs folder under Data Sets so that references between pipelines and datasets remain clear and structured.
+
+Once the learning pipelines are safely organized into the working labs folders, we can minimize or close all existing pipelines to declutter the workspace. We then create a new folder called Ingest under both Pipelines and Data Sets, which will hold the production-ready ingestion pipeline. This folder will contain all the new datasets and activities required for the pipeline, and it will serve as the foundation for processing the full set of source files using the metadata-driven approach we have learned.
+
+This setup ensures a clean, maintainable, and automated pipeline structure. We now have a solid foundation for building the final ingestion pipeline, leveraging metadata files, Lookup and For Each activities, and triggers to dynamically control processing based on date parameters.
+
+# **K) End To End Metadata Driven Ingestion Pipeline - Create Metadata File**
+
+We are now going to repair the Lab 3B pipeline and the datasets associated with it in order to create our final ingestion pipeline. The first step is to move all of the parameters—except for the file date—out of the pipeline and into the metadata file. This is because many of these parameter values are subject to change depending on the source system or other environmental factors. For instance, in the earlier pipeline, we were pointing to labs/lab3, but the actual one-year dataset now resides in the daily pricing folder of the HTTP web server. Therefore, parameters that define folder names or container names should be externalized into the metadata file for flexibility, while the file date will continue to exist as a pipeline parameter since it will be dynamically passed from the trigger.
+
+To do this, we begin by copying all the existing parameters from the Lab 3B pipeline so that their names can be reused in the new metadata file. We then take the previously created metadata file and make modifications. Since we no longer need to reference the global pricing data for this pipeline, we remove it from the metadata file. That earlier configuration was mainly used to demonstrate looping through multiple files. In the future, if we need to load additional file types, we can easily extend this same metadata file by adding new entries for those files.
+
+Next, we add a new key called relative URL folder name in the JSON metadata structure. This field defines the source folder path on the HTTP server. We format the JSON properly by enclosing the keys and values in double quotes. The value for this new field changes from "labs/lab3" to "daily pricing", since that is where the one-year source data resides. The file date parameter will continue to be supplied at runtime by the trigger, so it remains as a pipeline parameter.
+
+In the same metadata file, we also define a relative URL file type and set it to "csv". Similarly, we include additional parameters for the sink (destination), such as sink container name and sink folder name. The sink container name will be "landing", which, although constant, is still worth parameterizing to maintain flexibility for future changes. The sink folder name, previously pointing to labs/lab3, will now be updated to daily pricing data. Thus, all ingested files will be copied under the landing/daily pricing data path. Finally, we add the sink file type as "csv".
+
+After finalizing the new metadata structure, we save this file locally inside our area parameters folder. Since this is the finalized version for production ingestion, we will not include any “lab” references in the file name. Once saved locally, we upload this new metadata file to the Data Lake Storage Account, specifically under the ADF Metadata container. This ensures that our ingestion pipeline can dynamically reference all required configuration details from a centralized, parameterized metadata file.
+
+With this, all the prerequisites for developing the proper ingestion pipeline are complete. The new pipeline will be built entirely from scratch—rather than cloning Lab 3B—so that we can consolidate and apply everything we have learned so far in one place. This will serve as a complete revision of all the concepts we have covered, including metadata-driven design, looping, parameterization, and dynamic activity execution. In the next lesson, we will begin creating the necessary datasets required for our ingestion pipeline from the ground up.
+
+# **L) End To End Metadata Driven Ingestion Pipeline - Create Datasets**
+
+Let's start by creating the source dataset for our ingest pipeline under the Ingest folder. We will refer to the Lab 3 dataset because that is the key reference for us. To begin, right-click on the Ingest folder and select New Dataset.
+
+We know that it’s an HTTP Web Server dataset because our source data resides in the HTTP web server, and the format of the file is Delimited Text. We will provide a proper name for our dataset here. You can choose the existing linked service and specify the relative URL. However, we are not going to give the relative URL because this dataset is parameterized — meaning it will not point to any specific source file directly. Once this is set up, click OK.
+
+Next, refer back to our Lab 3 dataset to review the parameters we created earlier, and understand how those parameters were mapped to the relative URL value. We can reuse the same parameter values because they were properly created and tested during the previous lab.
+
+Now, go to the new dataset that we have just created. You’ll notice it doesn’t have any relative URL pointing to a source file yet. Go to the Parameters tab, click New, and create the same parameter that we used in Lab 3B. Then, we need to map this parameter to the connection object’s relative URL. Click Add Dynamic Content, and from there, map the parameter that you have just created.
+
+This step also serves as a good revision of what we have done so far in the earlier labs. Once you make these changes, click Publish to save them.
+
+Next, we will work on the Sink dataset parameters that we created for Lab 3. Open that dataset as soon as the previous changes are saved. It’s a good practice to keep closing any completed items so that you don’t get confused about which component you are currently working on.
+
+Now, we need to create a new dataset for our Sink under the Ingest folder. Click New Dataset again. This time, our Sink dataset will be stored in Azure Data Lake Storage Gen2, and the format will again be Delimited Text. Give the dataset a proper and meaningful name. This time, we exclude “Lab 3” from the name because this pipeline is meant to be production-ready, not just for lab testing.
+
+Once again, we will use the existing linked service, but we will not specify any container name or folder name directly for this dataset. This is because we are going to parameterize the full file path of our Sink directory, just like we did in the Lab 3 dataset.
+
+To do that, copy the same parameters used in Lab 3. In this new dataset, go to the Parameters tab and create three parameters — one for Container Name, one for Folder Name, and one for File Name. Some parts of the parameters may change slightly, but you can quickly edit them instead of switching between datasets repeatedly.
+
+Next, we need to map these parameters in the connection properties. For the file system, map the Container Name parameter. For the directory, map the Folder Name parameter. You can delete any incorrect or indirect mappings and add them again properly. Finally, map the File Name parameter to the file name field.
+
+Now, these parameters will later be passed from the pipeline itself. Once done, publish the changes quickly so that we are ready with all the datasets needed for our final ingestion pipeline. You can close this dataset as well once it’s saved.
+
+There’s one more dataset we need — the one that reads data from our metadata file. Copy the name from the existing Lab 3 metadata file, and create a new dataset under the Ingest folder. This metadata file resides in the Data Lake Storage Account, and the format of this dataset will be JSON.
+
+It’s important to note that this is not a data file — it’s a metadata file. This file stores information such as the source file name, source folder name, and source file type values. It is used to read these values from the Data Lake Storage account.
+
+Since this metadata file is always going to be one specific file for one type of ingestion, we don’t need to parameterize it. Instead, map it directly to the second metadata file that we created — not the Lab 3B one. This helps simulate a real-time project scenario, where metadata drives your ingestion dynamically.
+
+Once mapped, click OK. You can quickly preview the data to ensure there are no errors in the JSON file format. If everything is correctly configured, it will read properly.
+
+At this stage, we have created all the necessary datasets required for developing our ingestion pipeline. All changes are saved, and the datasets are properly organized under the Ingest folder.
+
+In the next lesson, we will start creating a brand new pipeline under the Ingest folder, where we will use all these datasets to perform end-to-end ingestion of source files existing in the HTTP web server into the landing container of our Data Lake.
+
+# **M) End To End Metadata Driven Ingestion Pipeline - Create Pipeline Part 1**
+
+Now we can start creating the brand new pipeline under the Ingest folder. Once again, we are going to refer to the Lab 3 pipeline, so that we can revisit all the components we have already implemented. Some parts will be slightly different, but for the most part, we are replicating what we learned earlier in this new ingest pipeline.
+
+Create a new pipeline and give it a proper name — similar to Lab 3B, but exclude the Lab 3B part from the pipeline name, as this is going to be a more generalized, production-ready version.
+
+Next, we need to create the pipeline parameters. In Lab 3, we had a parameter named RelativeURLFileDate. We have moved almost all components except this parameter, and now we’ll rename it to something more meaningful — SourceFileDate — since this parameter actually represents the source file’s date value, which drives multiple components throughout the pipeline.
+
+Similarly, we also need to create a pipeline variable that will store the converted version of this date value. This variable will hold the date in a specific format that is required to read files from the HTTP web server. Again, we’ll rename this variable from RelativeURLFileDate to SourceFileDate, maintaining consistency between parameters and variables.
+
+We can also include a default value for this parameter to make quick testing easier after we finish developing the pipeline. This allows us to run the pipeline immediately for one sample date, verify its functionality, and later configure a trigger to automate it.
+
+Now that we have our pipeline parameters and variables in place, the first activity we need to add is one that converts the date format into the specific structure required for reading the source files from the HTTP web server. The required format is MMddyyyy — it’s almost memorized for me, and hopefully, you’ll remember it easily too.
+
+To achieve this, we’ll use the Set Variable activity. This activity will set the value for the SourceFileDate variable. Give this activity a meaningful name, and then, in the Settings section, select the pipeline variable we want to assign a value to.
+
+In the Value field, click on Add Dynamic Content. This opens the Pipeline Expression Builder. Here, we are going to convert the pipeline parameter value (SourceFileDate) into the correct format by extracting the month, day, and year parts, since the original value might also contain a time component or a different date structure.
+
+From the functions list, select the function formatDateTime(). Inside the parentheses, we need to pass two arguments — the source date value and the target format we want.
+So, between the opening and closing brackets, we’ll write something like:
+@formatDateTime(pipeline().parameters.SourceFileDate, 'MMddyyyy')
+
+This expression converts the date into the required file-date format. You can quickly debug this step to verify that the output value is correct. Once executed, you’ll see that the variable now holds the expected date format.
+
+The next step is to read the metadata file we created earlier, which contains the parameters that drive our ingestion logic. We already have a dataset configured for this metadata file, so we don’t need to create a new one.
+
+To read this metadata file, we’ll use the Lookup activity. Drag a Lookup activity into the pipeline canvas and connect the output of the Set Variable activity to it. Give it a logical and descriptive name, such as FileJsonMetadata.
+
+In the Settings section of the Lookup activity, select the dataset that corresponds to the metadata file. You can easily identify it by name — make sure to choose the one without “Lab 3” in its name, as that’s the latest dataset we created for this pipeline.
+
+To double-check, you can click Preview Data to ensure it is reading the correct metadata file. If the data preview loads successfully, close the window. Now, make sure to disable the First Row Only option, because by default, the Lookup activity returns only the first record of the JSON file — and we need all the rows. We learned this behavior in our previous labs, and we’re simply reapplying that learning here.
+
+When you run or debug this activity, you’ll notice that the Lookup output contains a property called value, which is an array. This array will be used as input for the next step — the ForEach loop. You can quickly debug and check the output structure; in earlier labs, it showed two array items, but in this scenario, it shows only one because we temporarily removed Global Pricing data. We’ll add that back later with the correct scenario.
+
+Next, we need to include a ForEach activity to iterate over the items in this Lookup output. Connect the output of the Lookup activity to the ForEach activity, and give it a meaningful name.
+
+In the Settings section of the ForEach activity, we’ll specify the input as the Lookup output’s value array. The Lookup activity returns multiple properties, but we are only interested in the value property, which holds the array of metadata records. This array will drive the looping logic for each file ingestion process.
+
+Now, inside the ForEach activity, we’ll configure our Copy Data activity. This is where we’ll actually copy data from the HTTP source dataset to the Data Lake Sink dataset that we created earlier.
+
+Additionally, we’ll need to pass the lookup output values — such as the Folder Name, File Name, and File Type — into the dataset parameters of both the source and sink datasets. This ensures that for each iteration, the correct file is read and written to the right location dynamically.
+
+We’ll handle the configuration of these dataset parameters and map them correctly in the next lesson.
+
+# **N) End To End Metadata Driven Ingestion Pipeline - Create Pipeline Part 2**
+
+We need to click the activity section in the ForEach loop, or you can click the edit button inside the ForEach activity in the Pipeline design window. Both of them will take you into the sub-window. Now, we need to use the Copy Data activity here to read the data from the source and write it into the sink. Again, give a reasonable name for the Copy Data activity — for example, Pricing Data — and go to the source. We already configured the source dataset for this one, so just select the HTTP source pricing data. Look for it — I think it’s the shortest name here. Once it appears, it will ask for the value for the dataset parameter relative URL.
+
+Because we already parameterized the relative URL connection object in the dataset, it’s now asking for the value for this parameter. Now, the value for this one, compared to the 3B pipeline, is slightly different. In the previous instance, most of the values were coming from the pipeline parameters, and one of the values was coming from the pipeline variable. But in our case, the file date is coming from the pipeline variable, and the remaining values are coming from the output of the Lookup activity. So, it would be better to copy the output of the Lookup into a Notepad so that we can easily map it later.
+
+I would like to copy this value array output into a Notepad so that we can refer to it back when needed, or even we can refer to the metadata file that we created earlier. If you look at the output of this value array, you’ll see that the values are exactly the same as those coming from the metadata file. These key-value pairs are actually coming directly from the metadata file. So, we can refer to this metadata file to pass the values to the relative URL inside the Copy Data activity.
+
+Now, close this and come inside the ForEach activity. Go to the Copy Data source and click the Dynamic Content option for the dataset parameter relative URL. Most of the values are coming from the output of the Lookup, and only the file date is coming from the variable value that we derived. If you click the ForEach iterator, it appears as item. — this is the reference for accessing the output of the ForEach loop anywhere in ADF. If you want to refer to the output coming from the Lookup through the ForEach, it will be referred to as item, and the values will either be copied from the metadata file or directly from the Lookup output — both are identical.
+
+The first item we need to form in the relative URL is the relative URL folder name. You need to refer to it using the dot notation, e.g., item.folderName. The next one is the file name. However, we need to concatenate the folder name, file name, file date, and file type to form the full string for the relative URL. That’s what we have done in the 3B section as well. There, we used a concatenation of pipeline parameters, one output from the ForEach, and one variable value.
+
+But in our current case, we need to get three values from the output of the ForEach and only one value from the pipeline variable. So, before referencing item, we need to include the concat() function that exists in ADF. If you are not sure about how to add it, remove the earlier dynamic content and start with the concat() function first — open and close the brackets properly.
+
+The first element inside concat() is the ForEach item output for the relative URL folder name. That’s the one we start with. The next parameter is the file name, which also comes from the ForEach output. So, add a comma and then click on the ForEach item again. Remember, item is the default syntax to refer to anything inside the ForEach output.
+
+Now, go back to your metadata file — the next part is the file name. The third part is the pyFileDate, which is coming from the pipeline variable that we already set. So, go to the variables section and add the variable value. The last part of the source file is the source file type, which is also coming from the ForEach output. So, again, click on the ForEach output, or you can even type item. followed by the key name. In your metadata file, this will be defined as relative URL file type.
+
+Once the relative URL for the source is complete, we need to configure the sink parameters as well. Now go to the sink tab and select the sink dataset — ADLS Daily Pricing Data, which is the first dataset. It will ask for the values for three parameters.
+
+The first one is very straightforward — it’s coming from the ForEach folder output again. So just click item. and go to your metadata file. This is stored as syncContainerName, so you can provide that value here. The next one is the sync folder name. We can directly map it here again — select the ForEach output and refer to the metadata file, where the sync folder name key is defined, and map it accordingly.
+
+The last parameter is formed based on the file name, file date, and file extension. Again, we need to use the concat() function to combine multiple parameters coming from the ForEach output as well as the variable. The first part of the concatenation starts with item.syncFileName, which we defined as a key in the metadata file. Copy that one, then add the next part — file date, derived from the variable — and finally the last part, which is again coming from the ForEach activity output as item.syncFileType.
+
+Hopefully, everything works fine. Sometimes, if we remove one of the closing brackets by mistake, we can manually add it after adding the sync file type. These three parameters together will form the sync file name. It’s okay if we deleted one of the closing brackets — we can just reinsert it.
+
+Now, everything is set. If you publish the pipeline, your end-to-end pipeline is completely ready. It almost took about eight minutes to complete this pipeline, but to reach this stage, we have done a lot of experiments. This process helped us understand what value needs to be defined as a pipeline parameter, which ones need to be pipeline variables, and which components should be moved to the metadata file — and, most importantly, how we can reference them across different activities that we use.
+
+Once we publish the code, our pipeline is ready for execution. In the next lesson, we will do one quick run to load a single file into the proper daily pricing folder in the landing area. Then, we will configure the trigger to load at least one month’s worth of data from the source files into the landing layer.
+
+# **O) End To End Metadata Driven Ingestion Pipeline - Debugging And Error Handling**
+
+I quickly opened our Data Lake Storage account and checked the landing folder. It contained only the Lab subfolder, but in this case, we are trying to load data into a new folder called Daily Pricing Data. So, if I run this pipeline now, it will load only one day’s worth of the file. I would like to make sure the pipeline is running end to end properly, without any issues.
+
+To begin with, I am passing the pipeline date value as 2023-01-01 just to test it. Later, we will modify this setup by adding a trigger that will automatically pass the date value dynamically from the trigger output. But for now, I just want to run it once manually to ensure that all the configurations we have done for this pipeline are correct and there are no errors occurring anywhere.
+
+When I executed the pipeline, it failed again. I decided to take this opportunity to debug it to find out which part of the configuration or code was causing the issue. You truly gain confidence in a specific technology only when you can analyze an error, identify its root cause, and fix it independently. Until then, you might feel unsure. That’s why one shouldn’t be afraid of errors—they are actually the best way to learn.
+
+Looking at the error details, I noticed that the problem was again with the Request URL, which has been a common issue from the beginning of our setup. I copied the Request URL value into the metadata file to examine it more closely and identify the root cause.
+
+On inspection, I realized that the first part of the URL comes from the linked service, and then the Daily Pricing folder name follows. That part looked fine. However, I noticed that there was no slash ( / ) after the folder name, which is required to correctly form the path. That was one issue.
+
+Additionally, after the date value in the URL, the source file name was being repeated, which suggested that instead of mapping the relativeURL_fileType, I had accidentally mapped relativeURL_fileName again in the pipeline configuration.
+
+To confirm, I went back to the Copy Data activity and reviewed the Source configuration. As suspected, I had mapped the wrong field. I corrected the mapping to ensure that relativeURL_fileType was properly referenced instead of the file name.
+
+Next, I needed to fix the missing slash issue. I opened the metadata file, added a slash ( / ) after the relativeURL_folderName, and saved the file. With these corrections in place, I expected the pipeline to run successfully.
+
+Before re-running, I also double-checked the Sync file name mapping to ensure that the sync_fileType parameter was copied correctly. It looked fine.
+
+Now, I re-ran the pipeline by clicking Debug again, passing the same date value (2023-01-01). This time, the pipeline ran successfully without any errors.
+
+I quickly navigated back to the landing container in the Data Lake to verify the output. As expected, a new folder named Daily Pricing Data had been created, and it contained the newly copied file. I opened and checked the data inside — everything looked perfect.
+
+With this, our pipeline is now confirmed to be running end to end successfully. It is fully ready to be included in the scheduled trigger so that it can automatically load multiple days or even months of data from the source files into the landing layer going forward.
+
+# **P) End To End Metadata Driven Ingestion Pipeline - Create Tumbling Window Trigger**
+
+We can add the trigger to start running from the 1st of January 2023. For now, we will run the first ten days, and later we can extend it for the entire year. So, we need to create a new trigger. Even though we already created the tumbling window trigger, it won’t start to appear because that is one of the limitations of the tumbling window trigger. Therefore, we need to create a new tumbling window trigger for the daily pricing load.
+
+We are going to choose the type as a tumbling window trigger, and we need to start from January 1st, 2023. I would like to set the time as 00:00 (midnight). It needs to start at 12 a.m., and we will slowly increase the end time. For the time being, we’ll set it for one week, and it should run every 24 hours because new files are generated every 24 hours.
+
+When you go to the “Specify End Date” section, I would like to set it for one week first to make sure everything is working fine. Or maybe we can set it for ten days, up to January 10th, 2023, 00:00 hours. I think it will load nine files because tumbling window triggers start only at the first end time, not at the start time. That should be fine — if it loads nine files, we are okay.
+
+Also, one more option I mentioned earlier — I would like to run two days’ worth of data in parallel. Previously, we ran one after another, but now, in a single run, it will start the 1st and 2nd together, then 3rd and 4th, 5th and 6th, 7th and 8th, and the last run will probably be a single one. We can see this behavior in the Monitor window as well.
+
+As soon as I click OK, this trigger is associated with the pipeline. Now it’s asking only for the value of the pipeline parameter source_file_date. We need to pass the output of the tumbling window trigger property called window start time, just like we did earlier. I will share the link to the specific Microsoft support document for reference. You need to include “@” before it — that’s the way to pass the trigger output value to the pipeline parameter.
+
+Once we click OK, and then Publish, it will start running via the trigger. Previously, we ran it in Lab 3, but this time the pipeline will start running the specific configured pipeline. I’ll now click Publish All and publish. Hopefully, the first trigger run will be successful. But if some errors occur, we’re happy to look into them — because that’s the opportunity to learn about different types of errors.
+
+If you observe, since the concurrency is set to two, it’s starting the 1st and 2nd of January together. Previously, it ran sequentially, but this time, with the concurrency property set to two, it runs two pipelines at the same time. For the historical data, we need to catch up almost 365 days — actually, around 400 days of data since it’s the 30th of January. So, we can set it up to run any number of days, even up to 50 days, in parallel.
+
+We will wait for the completion of this trigger run. It’s running two days’ worth of ingestion in parallel after each successful completion of the previous one. If you look at the pipeline parameter value passed here, it’s 0103, then it keeps increasing — 0104, 0105, and so on — until it reaches the 10th of January 2023. Then it stops because we’ve set the end date.
+
+We don’t want to start loading 365 days’ worth of data right now because we still need to develop the subsequent layers in the Data Factory. I would like to quickly bring back the entire architecture to remind ourselves where we are and what we’ve done so far — as a summary of this section — before moving on to the next lesson.
+
+The run was successful for all the days we configured. When we check, the final day processed will be the 9th of January 2023 because we set the end date as the 10th. If we go to the landing container and refresh the Daily Pricing folder, it should now contain nine days’ worth of data.
+
+So, at last, we have developed a proper pipeline that loads data from the source (HTTP web server) automatically. It dynamically picks up changes in the source filenames and stores the data in our landing container in the Data Lake Storage Account without any user intervention. Once the trigger is set, you don’t have to do anything manually — just observe how it runs in the Monitor window.
+
+We’ve done a really good job! It took three hours to reach this level of understanding of a real-time pipeline. Now, if we want to develop another metadata-driven pipeline for reading data from a database instead of an HTTP web server, we can reuse this same logic. The only difference will be in the source and sink datasets.
+
+We can quickly create one metadata file listing the tables to be loaded from the database, build a similar pipeline, and run it inside a ForEach loop. In the Copy Data activity, we can configure parameter-driven source and sink datasets, and it can be done in just ten minutes.
+
+However, since this is our first time working in Azure Data Factory, we needed to explore each and every component step by step to reach this point. I’m really happy — if you were able to develop this final pipeline successfully, you can easily refer to all our previous pipelines without any issues.
+
+That’s why we built all those earlier pipelines — to show you different variations in pipeline development. This one is the optimal pipeline, designed to run automatically without any manual intervention. You can load any number of days’ worth of data effortlessly.
+
+We’re starting from January 2023 and can eventually extend it to today — around 400 days’ worth of data in total. I plan to execute that full run after developing the subsequent layers.
+
+In the next lesson, I’ll give you a quick summary of what we’ve done so far against our original architecture. Then, we’ll move on to building the next layer — because we now have enough data in the landing layer to start building our reporting layer.
+
+# **Q) Data Ingestion From HTTP Web Server - Summary**
+
+Now that we have developed our first ingestion pipeline, let’s go through the overall end-to-end project architecture to understand all the components we have completed so far.
+
+We are ingesting data from the CDP Web Service, and we have developed the ingestion pipeline to read the data from the HTTP web server. In this pipeline, we applied a metadata-driven ingestion approach so that whenever new files need to be ingested from the HTTP web server, we only need to include them in the metadata file — no code changes are required in the pipeline at all.
+
+The pipeline also runs automatically without any user intervention, thanks to the scheduling component — the trigger in Azure Data Factory. This trigger ensures that the pipeline runs daily, reading data from the HTTP web service for that specific day’s file and ingesting it into the landing container in our Data Lake Storage Account.
+
+We have also implemented an incremental load mechanism. This means that the pipeline reads and ingests one file per day. Once a file is successfully ingested into the landing container, it won’t be read again from the source. We achieved this using a combination of the trigger mechanism and trigger properties. For each run, a new date value is passed dynamically to the HTTP web server, which fetches the corresponding source file and loads it into the landing container.
+
+There are various approaches available to perform incremental loading, and we will revisit this concept in the transformation section under the topic of delta records processing. We will also explore different types of schedulers when we move on to building the reporting database.
+
+The next section we are going to focus on is the reporting layer. To begin that, we will start with dimensional data modeling. In the next section, we’ll start designing the dimensional data model for the pricing data that we have copied into the landing container under the folder Daily Pricing.
