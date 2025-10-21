@@ -115,6 +115,34 @@ This Repository contains my Notes of "Azure Data Factory - Data Engineering With
 
 **Q) Data Ingestion From HTTP Web Server - Summary**
 
+**VI) Reporting Database Design - Dimensional Data Modelling ( Star Schema )**
+
+**A) Dimensional Data Modelling Overview**
+
+**B) Dimensional Data Modelling - Source Data Overview**
+
+**C) Identify Business Description(Dimension) and Business Measures(Fact) Columns**
+
+**D) Identify Business Description(Dimension) Column Groups Having 1-1 Relationship**
+
+**E) Logical Data Modelling - Designing Dimension Tables**
+
+**F) Logical Data Modelling - Designing Fact Tables**
+
+**G) Physical Data Modelling Overview**
+
+**H) Physical Data Modelling - Identifying Data Types**
+
+**I) Physical Data Modelling - Applying Naming Conventions**
+
+**J) Physical Data Modelling - Including Audit Columns and Define Database Schema**
+
+**K) Setup AZURE SQL DATABASE - Overview**
+
+**L) Azure SQL Database Query Editor Overview**
+
+**M) SQL Server Management Studio Overview**
+
 
 
 
@@ -1052,3 +1080,79 @@ We have also implemented an incremental load mechanism. This means that the pipe
 There are various approaches available to perform incremental loading, and we will revisit this concept in the transformation section under the topic of delta records processing. We will also explore different types of schedulers when we move on to building the reporting database.
 
 The next section we are going to focus on is the reporting layer. To begin that, we will start with dimensional data modeling. In the next section, we’ll start designing the dimensional data model for the pricing data that we have copied into the landing container under the folder Daily Pricing.
+
+# **VI) Reporting Database Design - Dimensional Data Modelling ( Star Schema )**
+
+# **A) Dimensional Data Modelling Overview**
+
+In the previous section, we developed the Data Factory pipeline to read data from a web service and ingest it into the landing container in the Data Analytics project as part of our development. We learned how to ingest data from an HTTP web server and how to make that pipeline metadata-driven so that any new source files in the source system are automatically included in the pipeline by simply updating the metadata file stored externally from the Data Factory. We also explored the Data Factory automatic scheduling component, called a trigger, which allows the pipeline to run automatically without user intervention.
+
+So far, we have successfully loaded ten days’ worth of data into the landing container in the Data Lake storage account. Additionally, we explored how to perform incremental loads by fetching only the new source files generated in the source system on a daily basis. Although there are still two more ingestion components that we need to develop, we now have a clear understanding of our ingestion pipeline, which will make the remaining ingestion development quicker. I would also like to bring in these additional ingestion components later in the course, with proper requirements, to show why this additional data is needed for subsequent layers.
+
+Next, we are going to explore how to build Data Factory pipelines for transforming our source data in the landing layer. To define the necessary transformations, it is essential to know the output required in the final layer. Without understanding what the final layer will produce, we cannot properly define the transformations. Therefore, our next step is to build the reporting layer.
+
+Designing the reporting layer requires designing the final layer in the Data Analytics project using a data modeling technique called dimensional data modeling. We will explore dimensional data modeling first because once the final model is designed, we can return to Data Factory and develop the pipelines to transform and load the source data into this dimensional data model.
+
+We will focus on learning how to perform dimensional data modeling for our source data rather than discussing why this modeling technique is chosen. Dimensional data modeling is a mature and efficient technique that has been widely recommended for reporting requirements for many years. As soon as reporting requirements arise, it is common practice to use dimensional data modeling.
+
+Dimensional data modeling is widely supported by major service providers, including Microsoft, Databricks, IBM, and Amazon. These providers offer infrastructure and features that facilitate building dimensional data models because this technique is frequently used and well understood. For reporting purposes, dimensional data modeling is the preferred approach. While other modeling techniques, such as Data Vault, exist, they are not entirely suited for reporting purposes. In contrast, any reporting requirement can generally be met efficiently using dimensional data modeling.
+
+In the next lesson, we will focus on designing the dimensional data model for our source data, which will then guide the development of Data Factory pipelines to load this model.
+
+# **B) Dimensional Data Modelling - Source Data Overview**
+
+We are going to perform dimensional data modeling for our source daily pricing data that we ingested into the landing layer under the folder named daily pricing. To perform this data modeling effectively, we first need a clear understanding of the data. Normally, data engineers do not perform data modeling themselves, but it is important for us to understand the outcome of the data model. This understanding is essential because the design of the pipelines to populate the reporting layer in our project depends directly on the data model.
+
+To better understand the data, I have copied one of the source files into an Excel spreadsheet to gain a clearer visibility of the data. While we have already explored the nature of the data copied into our landing layer, we will review it again because understanding the data thoroughly is a prerequisite to performing data modeling.
+
+The data captures pricing information and the quantity of products arriving at various markets across different states in India. Both the pricing information and quantity of arrivals are recorded on a daily basis, giving us date-wise information. The second column, row ID, is a unique identifier for each row in the table, but it does not carry any business significance. The state name column is associated with each individual market, and products are logically grouped into product groups. Some products also include variety information. The origin information is not consistently populated; in many cases, it is recorded as “not recorded,” but we will not focus too much on the origin information.
+
+Within this dataset, the non-changing or slowly changing information includes the market, product group, and products. Most of the time, this information is stable and rarely changes. For example, if the pricing for a specific product in a specific market is missing on a particular day, it may not appear in the file for that day, but once the pricing is available, it will be recorded.
+
+On the other hand, the changing information includes the quantity of products arriving at the market on a specific day and the pricing information for that product in that market on that day. These values change daily and form the dynamic part of our data, which will drive the fact tables in our dimensional data model.
+
+# **C) Identify Business Description(Dimension) and Business Measures(Fact) Columns**
+
+Let’s start performing logical data modeling. As mentioned earlier, logical data modeling involves designing the data model purely based on the business context, without considering how it will be implemented in the database. To do this effectively, we need to frequently switch between the source data and the logical data modeling sheet because the structure of the model is entirely determined by the nature of the data.
+
+To guide our logical data modeling, I have listed a few steps. The first step is to identify all the columns, attributes, or data elements in the dataset. Whenever I refer to columns, attributes, or data elements, I mean the same thing and will use these terms interchangeably. In our case, the source data is in a consistent format across all days, so we can capture all column names from the source file and copy them into the logical data modeling sheet. I have also created some sample data from the source, which includes different variations. Bringing this sample data into the logical data modeling sheet will help us perform the next steps.
+
+The next step is to split the columns into business description columns and business measure columns. We need to identify which columns describe the business context and which columns quantify the business. Business description columns are mostly textual and provide context about the data. For example, the state name represents the market where a specific product arrived on a specific day. Similarly, market name, product group name, product name, and variety are textual values describing aspects of the data.
+
+On the other hand, business measure columns are numeric and quantify business activities. In our dataset, arrival quantity, minimum price, maximum price, and modal price are business measures because they quantify the quantity of products that arrived and the price range for that product on a given day.
+
+Some columns, like row ID, are not significant for modeling because they are just sequential numbers and do not affect pricing or product quantities. The date column, however, is critical and should always be included in the data model since it allows us to analyze business metrics over time. The origin column is inconsistently populated and will not be considered in our modeling.
+
+In this step, we will copy all the business description columns—from state name through variety—into one section of our logical data modeling sheet. Separately, we will copy all the business measure columns—arrival quantity, minimum price, maximum price, and modal price—into another section. We will leave one column space between the business description and business measure columns for clarity. This separation allows us to clearly see which columns describe the business and which ones quantify it.
+
+With this step completed, we are ready to proceed to the next stage of logical data modeling, which we will start in the next lesson.
+
+# **D) Identify Business Description(Dimension) Column Groups Having 1-1 Relationship**
+
+In the previous step, we identified business description columns and business measure columns. Naturally, business description columns store information in textual form, while business measure columns capture data in numerical values.
+
+The next step is to group the business description columns. The idea is to group columns where a value in one column is related to only one value in another column. We start by creating the first group and comparing data between state name and market name. If one state is always associated with only one market, they can be grouped together. However, in our dataset, a state like Uttar Pradesh has multiple markets, so these columns cannot be grouped together. We also check the reverse relationship: if one market always exists in one state, then they could be grouped. But in some sample records, there is ambiguity—for example, a market name exists in both Uttar Pradesh and Odisha—so these two columns are placed in separate groups.
+
+Since these two columns have a one-to-many relationship rather than a one-to-one relationship, we do not need to compare them with other columns for grouping. Moving on to product group and product name, we compare these next. One product group can have multiple products, which is a one-to-many relationship. However, if we look from the product name perspective, each product is associated with only one product group. This means these two columns can be grouped together because each product name maps to a single product group, even though multiple products exist within the same group.
+
+Finally, we consider the variety column. This is a slightly tricky situation. Variety information has a one-to-one relationship with the product name, but the pricing information for different varieties may change for the same market on the same day. If we include variety in the same group as the product, we would not be able to capture these differences in pricing. Additionally, logically, over a longer period, a product can have multiple varieties, each potentially having different pricing in the same market. Therefore, variety is placed in a separate group.
+
+Following this process, we have created four groups of business description columns. The next step will be to convert these groups into dimension tables, which we will cover in the next lesson.
+
+# **E) Logical Data Modelling - Designing Dimension Tables**
+
+# **F) Logical Data Modelling - Designing Fact Tables**
+
+# **G) Physical Data Modelling Overview**
+
+# **H) Physical Data Modelling - Identifying Data Types**
+
+# **I) Physical Data Modelling - Applying Naming Conventions**
+
+# **J) Physical Data Modelling - Including Audit Columns and Define Database Schema**
+
+# **K) Setup AZURE SQL DATABASE - Overview**
+
+# **L) Azure SQL Database Query Editor Overview**
+
+# **M) SQL Server Management Studio Overview**
