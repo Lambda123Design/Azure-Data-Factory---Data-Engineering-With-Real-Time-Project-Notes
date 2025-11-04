@@ -185,6 +185,36 @@ This Repository contains my Notes of "Azure Data Factory - Data Engineering With
 
 **T) Dimension Table Load - Merge Max SK JOINER Transformation Custom Join Condition**
 
+**VIII) Reusable DATAFLOW Design For Loading Dimension Tables**
+
+**A) Reusable DATAFLOW Design - Create Source and Sink Datasets**
+
+**B) Reusable DATAFLOW Design - Configure Source Transformation**
+
+**C) Reusable DATAFLOW Design - Generate Dynamic SQL Query Using Dataflow Parameter**
+
+**D) Reusable DATAFLOW Design - Dynamic SQL Query Import Projection**
+
+**E) Reusable DATAFLOW Design - Dynamic SQL Query For Max Surrogate Key Value**
+
+**F) Reusable DATAFLOW Design - Configure SELECT , AGGREGATOR and LOOKUP**
+
+**G) Reusable DATAFLOW Design - Configure FILTER , JOINER and DERIVED COLUMN**
+
+**H) Reusable DATAFLOW Design - Configure SINK & Pipeline To Automate Run**
+
+**I) Reusable DATAFLOW Design - Debugging**
+
+**J) Reusable DATAFLOW Design -Produce Dimension and Fact Tables CREATE SQL Scripts**
+
+**K) Reusable DATAFLOW Design - Reusing to Populate DIM_MARKET Dimension Table**
+
+**L) Reusable DATAFLOW Design - Reusing to Populate DIM_PRODUCT Dimension Table**
+
+**M) Reusable DATAFLOW Design - Reusing to Populate DIM_VARIETY Dimension Table**
+
+**N) Reusable DATAFLOW Design - Debugging Run Of Loading All Dimension Tables**
+
 
 
 
@@ -1946,3 +1976,55 @@ After the pipeline execution completes successfully, we can verify the results i
 We have made excellent progress here. Throughout this single data flow, we’ve managed to explore and apply a variety of transformations available in ADF. For example, under the multiple input/output section, we used both the Join and Lookup transformations. Under the schema modifier section, we used Derived Column, Select, Aggregate, and Surrogate Key transformations. In the row modifier section, we used the Filter transformation. And finally, we also configured the Sink transformation for output.
 
 This is a very good starting point because we now have a proper logic for developing and loading dimension tables using Data Flows in Azure Data Factory. However, we have not yet parameterized our source and sink datasets. That will be our next step — in the upcoming session, we will develop one more data flow where we parameterize everything for the Reporting Dimension Table Load.
+
+# **VIII) Reusable DATAFLOW Design For Loading Dimension Tables**
+
+# **A) Reusable DATAFLOW Design - Create Source and Sink Datasets**
+
+I would like to close all the unnecessary things. I’m going to refer to this data flow for creating the generic data flow with parameters and as much reusability as possible in that pipeline. We are going to do that under the actual folder name. So, for the ingest, we created one folder name, and in the same way, for transformation pipelines, we are going to create another folder name. So click on “New Folder” and create a new folder called transform. As soon as you create the folder under the pipeline, create it under the dataset as well so that any datasets related to the actual transform pipelines will be stored there. In the same way, under the data flow, also create the transform folder so that we will have the proper folder structure across the subcomponents of the ADF data flow.
+
+Now, I am going to use the existing data flows as a reference for creating the new data flow. I am going to use that same name without the “lab” suffix, as that’s how we are following the naming convention. So, under the transform folder, I’m going to create the data flow. In the previous step, we created the data flow from the pipeline, but this time we will try to create it directly under the Data Flows section, and then we will call it from the pipeline. However, before creating the data flow, it’s better to first create the necessary parameterized datasets so that we can easily create and reuse the data flow.
+
+The first dataset used in the source of the data flow is RDS ADLS Daily Pricing Landing Source. We will create this new data source without the “lab” suffix, but we will parameterize all of the container name, folder name, and file name as well. So, I’m going to create the new dataset under the transform folder. This dataset will point to the Azure Data Lake Storage Gen2 account, and it is a Delimited Text file. I’m going to give the name RDS_ADLS_DailyPricing_Landing_Source. We are going to use the same linked service here. I’m not going to give the path name or import the schema at the moment because I’m going to parameterize all of these file path connection settings.
+
+We know where to create the parameters. You can come here and create three parameters: dataset_prm_landing_container_name, dataset_prm_landing_folder_name, and dataset_prm_landing_file_name. Previously, we have used cm_sink_container_name and sink_folder_name in the ingestion pipelines, but now we are reading it as a source. So, we have given the landing file name and the landing folder name accordingly. After creating these three parameters, we can quickly map them using the Pipeline Expression Builder. I’m going a little quick, but you already know all these steps from previous lessons, so hopefully, you can follow along easily.
+
+The first mapping is for the container name, the next one is for the folder name, and the last one is for the file name so that we can pass the file paths to the dataset at runtime. However, we need the schema because we are working on individual column-level transformations. When you import the schema, it will ask for the values of these three parameter values. You can take them from the existing Landing dataset — for example, this one is Daily Pricing, and for the file name, you can provide any one of the existing file names in the Data Lake Storage account or from the previously created dataset. That way, it will import the necessary columns for us. This step is required for our data flow since we’ll perform transformations on specific columns.
+
+Now that we have parameterized our source dataset, we can publish all changes to store it under the transform folder. Once done, close the dataset to keep things tidy.
+
+The next source we need to create is for getting data from the sink table. This is the one we need to create the dataset for next. If you look at the existing dataset, it’s pointing to that specific table. We can parameterize this dataset’s table name and schema name so that it can be reused across multiple lookup tables. Therefore, we will create a parameterized dataset for the Dim State Source, which reads data from the sink table — that’s the purpose of this one.
+
+So again, come here and create a new dataset. This one will be of type Azure SQL Database. Choose Azure SQL Database and provide the name as SQL_Report_DimState_Source (without the “lab” suffix). Use the existing linked service for the SQL connection. For the table name, I do not want to provide it at the moment because we are going to use a different technique to read the data from this source. So, I’ll just click OK without specifying the table or schema. I do not want the schema either for this specific source because I’m going to use this same source for looking up all of the sink tables, not only one specific table.
+
+If we publish it, hopefully, it won’t invalidate, and that’s fine — it’s working correctly. If we come back to the data flow, there’s one more source we might need, but I think we can manage with the Dim State Source that we already created. I just need to rename it from Dim State Source to Dim Tables Source because this is the one I am going to use generically for multiple dimension lookups. So probably, we can rename it DimTables_Source to make it clear and consistent with naming conventions.
+
+Now we have created all the necessary source datasets. Next, we need to create the sink dataset. We will create one dataset per sink table — that is the approach we need to follow. So, it’s better to go that route. Go ahead and create a new dataset, again choosing Azure SQL Database as the type. Then provide the name as DimState, and choose the same linked service. Because the column names are specific to each table, we can’t parameterize this one. It’s better to choose the existing DimState table directly and publish the changes.
+
+So now we have created all the datasets needed for our final data flow that we are going to build for the transformation stage. In the next lesson, we will start creating the actual data flow using these parameterized and reusable datasets.
+
+# **B) Reusable DATAFLOW Design - Configure Source Transformation**
+
+# **C) Reusable DATAFLOW Design - Generate Dynamic SQL Query Using Dataflow Parameter**
+
+# **D) Reusable DATAFLOW Design - Dynamic SQL Query Import Projection**
+
+# **E) Reusable DATAFLOW Design - Dynamic SQL Query For Max Surrogate Key Value**
+
+# **F) Reusable DATAFLOW Design - Configure SELECT , AGGREGATOR and LOOKUP**
+
+# **G) Reusable DATAFLOW Design - Configure FILTER , JOINER and DERIVED COLUMN**
+
+# **H) Reusable DATAFLOW Design - Configure SINK & Pipeline To Automate Run**
+
+# **I) Reusable DATAFLOW Design - Debugging**
+
+# **J) Reusable DATAFLOW Design -Produce Dimension and Fact Tables CREATE SQL Scripts**
+
+# **K) Reusable DATAFLOW Design - Reusing to Populate DIM_MARKET Dimension Table**
+
+# **L) Reusable DATAFLOW Design - Reusing to Populate DIM_PRODUCT Dimension Table**
+
+# **M) Reusable DATAFLOW Design - Reusing to Populate DIM_VARIETY Dimension Table**
+
+# **N) Reusable DATAFLOW Design - Debugging Run Of Loading All Dimension Tables**
