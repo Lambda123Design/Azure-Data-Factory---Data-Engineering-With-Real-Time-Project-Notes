@@ -1667,13 +1667,151 @@ Now that the State ID values have been successfully created, the next step is to
 
 # **K) Dimension Table Load - DATAFLOW DERIVED COLUMN and SINK Transformation**
 
+We have mapped these audit columns. We call them audit columns because they allow us to audit the data that is loaded into the reporting database. Both of these columns are pointing to the system data existing in Azure Data Factory. However, this data is not in the same format — it exists in UTC format. We can change this mapping later if required.
+
+Our current task is to create two new columns in our data flow and assign system date values to these new columns. Essentially, we are deriving these columns. Earlier, we created new columns using a surrogate key, where we performed specific operations to generate them. But in this case, we just need to create two new columns and directly assign values to them.
+
+For such straightforward column creation, there is a transformation called Derived Column in Azure Data Factory. Using the Derived Column transformation, we can create any number of columns and assign expressions to them using the Data Flow Expression Builder.
+
+Here, we are going to create two derived columns for the audit process. The first column is DW_Create_Date. We need to assign the system date value representing the time when the specific record is loaded into the database table. For this, we will use the system date function. So, we will search for any available date and time functions and use currentDate(), as that is the one closest to what we need. If any errors occur, we can come back and fix them later.
+
+After mapping the first column to the current date value coming from the data flow, we will create one more column. Click Add Column and name it DW_Updated_Date. Again, assign the same expression (currentDate()) to this column. You can either copy and paste the expression or open the Expression Builder and paste it there. If you paste it, it should work fine. This is a very simple process.
+
+Now we have included two additional columns. If you look at the data flow now, we have all the source columns needed for mapping into the Dim_State table. All four columns have been derived successfully, and now we can populate this data into the sink.
+
+A data flow must have at least one source and one sink. The sink here is where the transformed data will be written. In this case, we have split the source and sink operations. They are not present in the same place, unlike the Copy Data activity. Here, we start with the source, apply all the necessary transformations at the column level, and then map the data to the sink.
+
+As soon as you click the sink, it asks you to map it to a dataset. There are multiple dataset options available, but for now, we will go with the standard dataset. Select the sink dataset named Sink_Dim_State, which we have already created to point to our Dim_State table. It was created earlier under Lab 4.
+
+If you click on that and go to the Settings section, it asks whether you want to insert, delete existing data, or perform an upsert (update existing records). We will explore all these options later. For now, we do not want to recreate the table since it already exists, so we won’t apply any of these changes.
+
+Next, we move to the Error section. If any of the source data does not meet the target database’s data type or schema requirements, you can choose to redirect those error records elsewhere, stop the data flow, or continue on error. This is where we configure error handling to ensure that any data mismatches or type conflicts are properly handled.
+
+One of the most important configurations right now is the Mapping section. We need to ensure that the source columns coming out of the final transformation match exactly with the column names in the target table. If the names are the same, Azure Data Factory will automatically perform the column mapping.
+
+To verify this, you can uncheck Auto Mapping. This will display the mapping that has been automatically applied. Since our source column names from the transformations match the target table columns, they have been mapped automatically. The target table columns have been identified from the sink dataset, and everything looks good.
+
+Once all of this is verified, click Publish All to save all your code and configurations into the Data Factory repository. However, since we still have the Copy Data activity in our pipeline, it might throw an error during publishing because some of the columns cannot be mapped in the copy data activity.
+
+To fix this, delete the Copy Data activity since we no longer need it. After deleting it, perform Publish All again. This time, all changes will be successfully stored in the repository.
+
+Now that publishing is complete, the next step is to run the pipeline to ensure that the source data is properly transformed and loaded into the SQL Server database. We will perform this step in the next lesson.
+
 # **L) Dimension Table Load - Recap DATAFLOW Transformations & Debugging DATAFLOW**
+
+Let us start debugging this pipeline. First, we will close all unnecessary windows to focus on our work. This is the main pipeline where we created our data flow. Data flows in Azure Data Factory can be created independently, similar to how we create datasets. However, for the first time, we created this data flow using the Data Flow Activity directly within the pipeline by clicking the New button. This action opened the Data Flow Design Window, also known as the canvas.
+
+Now, we can open the same data flow from the pipeline. In Azure Data Factory, every data flow must have at least one source and one sink. Without these, the data flow will not be validated successfully. In most cases, data flows also include several transformations that must be performed on the data between the source and sink.
+
+We identified our transformation rules from the source-to-target mapping document. Based on that, we started by extracting only the State Name column from the source file. For this, we used an existing transformation called Select. Then, we applied an Aggregate Transformation to identify the unique state name values from the source data. By applying a count of state names as an aggregate function, we were able to obtain the distinct state name values.
+
+Next, we used another Select Transformation, which works similarly to the first one, to remove the additional column that was created in the aggregate transformation. After that, we added a Surrogate Key Transformation to generate a running ID for each of the unique state name values. This transformation automatically creates a new ID column value for each record passing through it.
+
+The last transformation step involved deriving two audit columns — DW_Create_Date and DW_Updated_Date. These columns were added to align with the structure of our dimension table. Once this was done, we created our sink, which points to the SQL Server database. All the transformed columns from the previous steps were mapped correctly to the sink columns in the target table.
+
+Now, when we click Debug, it uses the existing Data Flow Debug Session. It’s important to note that, in Azure Data Factory, data flow components cannot be executed individually at the transformation level. You can preview the data at each transformation using Data Preview, but that only helps you verify whether your transformations are functioning correctly — it doesn’t load any data into the sink.
+
+To actually execute and load data, you must use the Data Flow Activity within the pipeline, link it to your developed data flow, and then run the pipeline. Once the pipeline runs, you can monitor its progress from the Pipeline Output section.
+
+During execution, the run details at each stage are displayed. If you look at them closely, you will see all the transformations used, starting with the source. The source reads the input file containing 12,877 records, which seems accurate. We can cross-check this, and indeed, it reads 12,877 records since the first row is a header containing column names — that’s absolutely correct.
+
+In the next stage, the same number of records (12,877) pass through, but only the State Name column is carried forward. Then, the aggregate stage processes the data and calculates 25 unique state names. We can later explore the partition chart and related details, but for now, our goal is to ensure that the data flow development process is clear.
+
+The next stage removes the count column generated by the aggregate transformation, and then the surrogate key transformation assigns unique ID values to each of the 25 state name records. Following that, the derived column transformation creates the two audit columns — DW_Create_Date and DW_Updated_Date.
+
+Finally, in the Sink stage, the transformed data is successfully loaded into the target table — a total of 25 rows are inserted into the SQL Server database. Everything appears to be working correctly.
+
+Now, to confirm the results, we can go to the SQL Server database and verify whether the data is loaded properly. Open the Home section and access the SQL Server Reporting Database that we created earlier. You can quickly check the data using the Query Editor. For authentication, use Microsoft Entra Authentication, which eliminates the need to enter passwords manually.
+
+Once connected, navigate to the Dim_State table to view the loaded data. You can write your own SQL query to check it. For example, run:
+
+SELECT * FROM reporting.dim_state;
+
+This query retrieves all records from the table. The data is loaded correctly — we can see 25 unique state name values, each with a unique state ID. Everything looks good and as expected.
+
+Now that the data flow is running successfully and the data is verified, our next step will be to make this data flow stable. In the next lesson, we will rerun the pipeline using another source file from our Data Lake Storage Account and observe the behavior.
 
 # **M) Dimension Table Load - Change Data Capture (CDC) Overview**
 
+When we complete our data flow development and get it ready for daily execution, it should not run for only one specific source file. As of now, we have not yet parameterized our source file. In our landing folder, under the daily pricing directory, there is not just the 1st of January file — there are several files already available, and more files will continue to arrive over time. Therefore, our data flow needs to run for each of these incoming source files and consistently produce the output in the SQL Server table.
+
+An important aspect of this setup is that the data flow must not load any duplicate state name values into the table. This is a critical principle in dimensional data modeling, because the keys in the dimension table are mapped back to the fact tables. The linking between the dimension and fact tables happens exclusively through these ID column values. Hence, it’s crucial that no duplicate records exist in the dimension table, as this would compromise data integrity and cause incorrect relationships in reporting.
+
+Now, let’s proceed to test this by passing the 2nd of January file and rerunning the pipeline. We will first publish the changes for the time being. At this stage, it is still part of the Lab 4 or Lab 5 pipeline, and we still have time to develop the complete pipeline. The only change made now is switching the source file from 1st of January to 2nd of January.
+
+When we run the pipeline, ideally, it should not create any duplicate state name values. Otherwise, it will lead to unnecessary issues. Let’s execute the pipeline and observe what happens. The pipeline runs successfully, and now we will quickly check the data in the SQL Server database for the Dim_State table.
+
+To verify the result properly, we will order the rows by the State_ID column so that we can easily spot any duplicate values. Upon checking, it looks like some duplicate records have been loaded because the total number of records now exceeds 25. To confirm this, we can use the ORDER BY clause in our SQL query to sort the results by the State_ID column and inspect the data.
+
+After running the query, we can clearly see that duplicate values for the same state have been generated. This is not the expected behavior. The reason for this issue is that we did not handle the scenario for existing records within the data flow.
+
+If we look back at our data flow, we simply changed the source file from 1st January 2023 to 2nd January 2023. This means that the data flow read all the state names from that file, calculated the unique state name values within that file, generated surrogate IDs for them, derived audit columns, and then loaded everything into the sink table. However, there is no validation step that checks whether the state name values coming from the new source file already exist in the target table.
+
+What we need to do is ensure that before loading data into the sink, the data flow verifies whether each state name value from the source already exists in the target table (Dim_State). If it exists, it should not be reloaded, because in our dimension table, there must be one unique state name mapped to one unique state ID value. This rule is fundamental to maintaining data consistency in dimensional data modeling.
+
+If duplicate data is inserted into the dimension table, it will completely compromise data integrity in the reporting database. To prevent this, we need to add logic in our data flow to check if each incoming state name from the source already exists in the target table before performing the insert.
+
+In other words, we must read the sink table (i.e., the existing target table in SQL Server) as an additional source in the data flow. Without reading the sink table as a source, we cannot compare and identify whether a state name coming from the source file already exists in the target table. The Sink Transformation itself cannot be used for this comparison, as it is designed only for writing data — not for reading or referencing existing records.
+
+Therefore, to implement this logic, we will use the sink table as an additional source in the data flow. We will then perform a comparison between the state name values coming from the source file and those already present in the sink table. This comparison will help ensure that only new, unique state names are loaded, and duplicates are avoided.
+
+We will carry out this enhancement by adding an additional source and an additional transformation in the next lesson.
+
 # **N) Dimension Table Load - Change Data Capture Add Sink Data Into Source Stream**
 
+To stop loading duplicate records into our Dim_State table, we need to read the existing state name values from our sink table. To achieve this, we must first create a new dataset. Although we already have a dataset connected to the Dim_State table, that dataset was specifically created for loading data into the Dim_State table. However, when we want to read data from this same table, we need to create a separate dataset. This is because the configuration settings used when reading data as a source differ from those used when writing data as a sink.
+
+Therefore, I am going to create a new dataset for the same Dim_State table. To clearly differentiate between the two, I will follow a naming convention that makes it obvious whether the dataset is used as a source or as a sink. For example, since this dataset is meant for reading existing data, I will name it something like “report_dim_state_source_lab4.” This dataset will connect to the Azure SQL Database and will be used to check whether the state names already exist in the target table.
+
+Once the new source dataset for the sink table is created, we can return to the data flow. Within the data flow, we can add multiple sources, so we will now add this new source, which I’ll call “source_dim_state_lookup.” This source will use the new dataset we just created. As a result, we now have two datasets that point to the same table — one for loading (sink) and another for reading (source).
+
+After adding the source, we can go to the Projection or Inspect window to confirm that it has successfully imported the column names from the dataset. Now that it’s connected, we have state name values coming from both sides — the source file and the sink table (lookup source).
+
+To avoid confusion in the design and to keep the columns clearly distinguishable, we should rename the column coming from the lookup table. Additionally, from the target table, we don’t need all columns — we only need the state name column to perform the comparison. For this purpose, we will use a Select Transformation.
+
+Let’s call this transformation “Select_Dim_State_Lookup.” In the description, we can note that this transformation is used for lookup purposes. Within this transformation, we will select only the State_Name column from the sink table and delete the rest. Then, we’ll rename this column to “lookup_state_name.”
+
+It’s important to understand that we are not changing the actual column name in the source table; we are only renaming it inside the data flow to make our design easier to follow. Essentially, the renamed column lookup_state_name still points to the State_Name column in the sink table, but the name change helps differentiate it from the State_Name column coming from the source file.
+
+The Select Transformation is not only useful for removing columns but also for renaming columns — especially when multiple sources contain columns with the same name. This way, we can avoid conflicts when merging or comparing data from different sources.
+
+At this stage, we have two separate streams in our data flow — one coming from the source file and the other from the sink (lookup) table. If we press the preview button for the lookup stream, it will display all of the existing (and currently duplicate) records from the target table.
+
+However, these two streams are currently separate. Without merging them, we cannot compare the state names from the source file with those from the target table to identify duplicates. Therefore, the next step is to merge these two streams so that we can perform the comparison.
+
+Before we proceed with the merge, we need to clean up the data in the target table because it currently contains duplicate records. To start fresh, we will truncate the target table. Go to the SQL Server database and run the following SQL statement:
+
+TRUNCATE TABLE [reporting].[Dim_State];
+
+This command removes all the records from the target table. Be cautious when running SQL commands like this — always double-check before executing to avoid accidentally deleting important data. A good practice is to temporarily comment out any SQL statements that you don’t want to execute immediately.
+
+Once you run the truncate command, you can verify that the table is empty by executing:
+
+SELECT * FROM [reporting].[Dim_State];
+
+This should return no records. Similarly, if you refresh the data preview in your data flow source, make sure to click Refresh from Source rather than just Refresh, because the regular refresh might still show cached data.
+
+Now that the target table is empty, we are ready to proceed. The source file contains new state name values, and everything looks good. Our next step is to merge the two source streams (the one from the source file and the one from the lookup table). Without merging them, we cannot perform the necessary comparison between the two datasets.
+
+We will accomplish this merging process and perform the comparison logic in the next lesson.
+
 # **O) Dimension Table Load - Change Data Capture LOOKUP Transformation**
+
+Now I need to identify the new transformation that can join these two sources — one coming from our original source file and the other from our sink table. I need to compare whether the source state name is already existing in the sink table or not. For that, I am reading the data from my sink table. For the time being, it’s null — there’s no data there — but still, it will work. So, we are going to include one more transformation before the surrogate key. Specifically, why I am including it before the surrogate key is because surrogate keys need to be generated only for the state names that are going to be inserted into the sink table. From before the surrogate key itself, I can filter out any state names already existing in the sink table. Then we don’t need to do any further actions. That’s why I am including this before the surrogate key.
+
+I am clicking this button, and there are a couple of transformations available for merging multiple inputs and multiple outputs. In our case, it is multiple inputs. You can use these available transformations to merge the two datasets. Specifically, we can use the Join transformation because Join will join two datasets — the name itself implies that it can merge the two datasets. The other thing we can do is use the Lookup transformation. The difference is that the Join transformation will match based on the join type — the two datasets are merged based on matching rows — but in Lookup, irrespective of whether a record exists between the two sources, all of them will be merged, and if no record is present, it will come as a null value from one of the streams.
+
+So, I am not going to use Join; instead, I am going to use the Lookup transformation. In this instance, we will explore all of them — multiple input and multiple output transformations — so don’t worry. For now, I need to merge these two sources: one is coming from the source file, and the other is coming from the sink table. Irrespective of any record existing in either of these, if a record is not existing in one of the sources, that value needs to come as null.
+
+So, I am going to include the Lookup transformation here. As this is a multiple input transformation, it will ask us to configure two inputs and also ask us to specify the condition for how to merge both of these inputs. So, I am naming this as Lookup_StateName, because we are looking up the actual state name value. As I said, the primary stream has to be included here — it automatically connects from the source file transformation output. This is the primary stream. I need to compare this primary stream against the lookup stream — and for this purpose only, we created the Select DimState Lookup, the new source we created earlier. In the Select transformation, we excluded unnecessary columns.
+
+So this is the one that needs to be the lookup stream, and from this, you need to choose appropriately. That’s why I included the word “lookup” in the naming conventions on the Select transformation — to make it clear. Now, it’s asking if multiple rows match between these two sources, do we need to match all or only match on any row? It should be fine to enable the multiple match rows option, because if we load the data properly, there will only be one record existing in the target table. It can match on any row for the time being, so we can leave these two settings as default.
+
+Now it’s asking for the lookup condition — on what basis do I need to merge these two datasets? The common column name between these two sources is the state name. From the main source stream, we have the state name, and the same state name value is also appearing in the sink table. But to differentiate the state name inside the code, we renamed it to lookup_state_name. So now it is matching between these two sources.
+
+If you come to the Inspect Output, it shows both the state_name and lookup_state_name columns. If you look at the Data Preview, and refresh it, it is reading the data from the 2nd of January file. Please note that we mapped it to the 2nd of January file. Probably we can switch it back to the 1st of January file so that we can start it as a fresh run. If you refresh it, it will read the data from our source file. Our source file has data, but our sink table does not — because we truncated the data earlier, since erroneous data was loaded in the previous step.
+
+So, the lookup_state_name is coming as null. That means this source state name value does not exist in the target table. These records can be passed after this Lookup transformation to load them into the sink table. To filter out only these records, we need to use an additional transformation called Filter Transformation. We will configure the filter transformation in the next lesson.
 
 # **P) Dimension Table Load - Change Data Capture FILTER Transformation**
 
