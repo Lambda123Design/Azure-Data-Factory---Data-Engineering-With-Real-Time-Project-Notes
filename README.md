@@ -1815,11 +1815,134 @@ So, the lookup_state_name is coming as null. That means this source state name v
 
 # **P) Dimension Table Load - Change Data Capture FILTER Transformation**
 
+In this lookup transformation, we have configured two streams — one is the stream coming from the source file, and the other is the stream coming from the sink target table. We are matching these two datasets based on the state name column that exists in both the source and the sink. If you look at the data preview, whenever the lookup state name value is null, that means this record is coming from the target table. In other words, this state name is not yet loaded in the sink table. These records need to be filtered out and passed to the subsequent transformations to generate the surrogate ID, created date, and updated date columns.
+
+To filter out only these records, we are going to use another transformation called the Filter transformation. The Filter transformation exists under the Row Modifier category. It determines whether a specific row should be passed through or not, which is why it is called a row modifier. We are going to filter the new state name values coming from the source using the Filter transformation. Inside the Expression Editor, when we open the Expression Builder, the Data Flow Expression Builder interface appears.
+
+Now, we need to apply the condition that checks whether the lookup state name column is null. This means we are verifying whether the lookup (from the sink) did not find a match for a particular source state name. If the lookup state name column is null, it indicates that the corresponding state name does not exist in the sink table and thus needs to be passed forward for loading into the target table. This ensures that duplicate records will not be loaded again.
+
+In the Filter settings, when you open the Expression Builder, you can search for the isNull function to check for null values. Once you find it, click on isNull, and then specify the column name you want to check. After that, delete the function search and go to the Input Schema section where you can see the actual column names coming into the Filter transformation. Here, we need to check against the isNull of our sink state name values — which we have defined as the lookup state name column. Once this is done, click Save and Finish.
+
+If you then check the Data Preview, in this current instance it will pass through all of the state name values because our target table currently does not have any data. Once we have loaded the data, if we come back and check again, the Data Preview will show that no state name values are passed through, since they already exist in the sink. Everything looks good and is working fine.
+
+After the Filter stream, we will need to include the Surrogate ID generation for the state names that are identified to be loaded. Then, we can publish the changes. Now we can start running the pipeline again. Currently, it is still pointing to the file dated 01-01-2023, but soon we will parameterize this value so that during runtime it will dynamically ask for the date instead of manually changing it in the dataset. We are already familiar with parameterization, but for now, we are focusing on understanding the complexity within the Data Flow itself before parameterizing everything. The goal here is to first introduce and master different transformations available in the data flow before moving on to the proper pipeline development.
+
+Now, let’s run the pipeline again. Since there is currently no data in the target table, the first run will load all of the state name values. If we run it a second time, it will not load any duplicate state name values — this is the expected behavior based on the logic we have implemented using the Lookup and Filter transformations. The pipeline ran successfully. We can quickly check the database server to confirm whether the data has been loaded into the final target table.
+
+There are 25 state names that have been loaded, which looks good. Now, to further test, we will rerun the pipeline with the next day’s source file. For that, we will change the source file name in the dataset from 0101_2023 to 0102_2023. After updating it, we publish the changes and rerun the pipeline. This time, it should not load any duplicate records because we have already implemented protection by comparing the source and sink datasets. After running the pipeline again, it completed successfully. Checking the target database table confirms that there are still only 25 rows, which means no duplicate records were inserted.
+
+This proves that our logic and configuration are working as intended. We are gradually improving our data flow development skills to handle various real-world scenarios. Initially, we mapped and performed all the transformations required for the sink table. Now, we have added additional protection to ensure no duplicates are loaded, which is crucial since this pipeline will run daily. There is only one more issue remaining in this data flow, but apart from that, it is fully ready to be converted into a real-time data flow. We will address that remaining issue in the next lesson.
+
 # **Q) Dimension Table Load - Change Data Capture SURROGATE KEY Limitation**
+
+I went back to my SQL Server database and verified that I have 25 state names loaded from both the first of January file and the second of January file. Now, I want to simulate a real-time scenario that you would typically encounter in an actual project. For example, during the first day’s file load, let’s assume that two specific state names did not get loaded, so we can test our logic thoroughly.
+
+To simulate this situation, I will delete those two records from the target table. This will help recreate the scenario where the next day’s file needs to pick up and load only those missing records. While executing a delete command, we need to be extremely careful—because if we forget to include a WHERE condition, it would behave like a truncate operation and remove all the records from the table. So, to be safe, I’ll execute a query like:
+DELETE FROM [target_table] WHERE state_id IN (24, 25);
+This will delete only those two specific records so that when I rerun the pipeline, I can confidently verify that the logic correctly identifies and loads these missing state names into the SQL Server database.
+
+These types of test simulations are very important in real-time projects. During development, we rarely have access to complete or perfect datasets, so it’s essential to perform such small data adjustments to make sure our logic works as expected. That’s exactly what I’m doing here — testing the robustness of the logic. After deleting those two records, my target table now has only 23 state names. It’s a good practice to always comment out truncate or delete statements in your SQL editor once executed to avoid accidentally re-running them later.
+
+Now, the target table has 23 records, and we know that the two missing state names exist in the second January file. When we rerun the pipeline, it should ideally load only those two missing state names, assigning them the next state_id values of 24 and 25. So, I ran the pipeline again to verify this behavior.
+
+The pipeline ran successfully, and when I went back to the SQL Server database and checked, I could see that the two deleted state names were indeed reloaded. However, there was a problem. Even though the two missing state names were loaded correctly, the state_id values generated for them were 1 and 2 instead of 24 and 25. This issue occurs because, in the data flow, we are using a Surrogate Key Generator to create surrogate IDs for the state_id field. The surrogate key generator always starts from the configured start value for each new run. It does not remember or continue from the last maximum value in the target table.
+
+So, even though the logic correctly identified and passed only the two missing state names, the surrogate key generator still began assigning IDs from 1, resulting in incorrect values. This is a known limitation of the Surrogate Key Generator, as it cannot dynamically pick up the last used key value from the target table.
+
+To fix this issue, before loading any new state names, we need to first identify the maximum surrogate key value currently existing in the target table. Once we have that value, we should pass it into the data flow and add it to the newly generated surrogate key IDs. This way, the new records will receive sequential IDs that are greater than the existing maximum value in the target table.
+
+At this point, we have some erroneous data in the table because two different state names are now sharing the same state_id values. To correct this, I will truncate the target table and reload it with the proper state ID sequence. After reloading, I will again delete the last two rows manually, and then modify the data flow logic to ensure that in the next run, it dynamically generates the new surrogate key IDs starting from the maximum value already present in the target table.
+
+Since we deleted the first two IDs (1 and 2), we don’t want any strange gaps or restarts in our surrogate key sequence. Therefore, I executed the TRUNCATE TABLE statement, which cleared the table completely. After that, I reran the pipeline. This time, it successfully loaded all the 25 state names properly. I verified the result in the SQL Server database, and everything looked correct — the final dimension table contained exactly 25 records with proper state IDs.
+
+Now, I’m going to delete the last two state names again — Himachal Pradesh and Uttar Pradesh — whose IDs are 24 and 25. I made a note of these details so that I can verify them later after making further changes. Next, we will modify the data flow to fetch the maximum surrogate key dynamically from the final target table and then reload these two missing state names with the correct IDs, 24 and 25, in the next lesson.
 
 # **R) Dimension Table Load - Change Data Capture Get Max SURROGATE KEY Using Query**
 
+The actual problem we are facing is related to how the surrogate key transformation works in the data flow. All of the state names can come from any of the files — the first file, the next file, or any subsequent file. In our real-time scenario, we don’t have any control over the data in these files. In our case, both the first and the second January files contain the same list of state names.
+
+To simulate a realistic scenario, I deleted two of the state names that already existed in the target table, assuming that they didn’t appear in the first day’s load. Now, when we run the pipeline using the second day’s source data file, it should ideally insert those two missing state names with the next sequential state ID values, which are 24 and 25.
+
+However, when we run this pipeline with the current data flow configuration, the two new state names are being generated with state ID values 1 and 2 instead. This happens because of a limitation in the Surrogate Key transformation. The surrogate key generator always starts assigning values from the same starting point — usually 1 — and continues sequentially from there, regardless of what values already exist in the target table. Every time the pipeline runs, it resets and starts again from 1, rather than continuing from the last highest state ID.
+
+To fix this, we need to identify the maximum state ID value that currently exists in the target table before loading any new records. Once we identify that maximum value, we can use it to adjust the newly generated surrogate IDs, ensuring that they continue from the correct sequence. For example, if the maximum state ID in the target table is 23, the next two new state names should receive 24 and 25 as their IDs.
+
+Finding this maximum value is quite straightforward — we can generate it using a simple SQL query. For instance, we can use a SQL function such as:
+SELECT MAX(state_id) AS MaxStateID FROM [target_table];
+This query returns the highest state ID currently present in the target table. We can use the same SQL logic directly inside Azure Data Factory (ADF) to fetch the maximum state ID dynamically before inserting new records. When tested, this SQL query correctly brought back the value 23, which matches the maximum state ID currently in our table.
+
+Now, before inserting any new data into the target table, we need to make sure that our data flow is aware of this maximum value. To do that, we’ll create one more dataset in ADF. So, in the workspace, go to the “Working Labs” section and create a new dataset for the sink table. This dataset will connect to our Azure SQL Database. We’ll name this dataset DataSource_SDK, which stands for Data Source for Surrogate Key. The purpose of this dataset is to retrieve the maximum surrogate key ID from the target (labpur) table.
+
+After creating the dataset, we will select the existing linked service and choose the corresponding table. This dataset will now serve as the data source for fetching the maximum state ID value from the sink table. Once the dataset is created, we need to add an additional source to our data flow.
+
+So, in the data flow canvas, add a new Source and name it something like Source_MaxStateID. From the available datasets, choose the new Labpur dataset we just created. When you look at the Projection tab, you’ll see that it displays all the column names and values from the sink table. Similarly, in the Data Preview, it shows the full set of data from that table. But we don’t need all of that information — we only need the maximum state ID value.
+
+To achieve this, we can modify the behavior in the Source Options. By default, the source tries to read all the data from the entire table, but we can control that by changing the source type. Instead of selecting the Table option, we will select Query. In the query option, we’ll write a SQL query that returns only the maximum state ID value. This way, the source will only fetch and output the result of that query, rather than the entire dataset.
+
+Once we apply this change, the number of columns being output by this source changes — now it should only output the maximum state ID value. When you check the Projection and Inspect tab, it initially still shows all column names. To update it correctly, we need to click on Import Projection.
+
+At this point, ADF will show an error, which is expected. When you open the Notifications and view the Details, it says that in the source Source_MaxStateID, the column name needs to be specified in the query — specifically, an alias must be set if a SQL function is used. Since we’re using the SQL function MAX() to calculate the maximum value, we need to give it a proper alias name. This is a standard SQL aliasing concept.
+
+So, in our query, we’ll write something like:
+SELECT MAX(state_id) AS MaxStateID FROM [target_table];
+By providing this alias, ADF can recognize and map the column name properly. Now, when we click Import Projection again, the projection updates successfully. The Projection and Inspect tab now correctly displays the single column MaxStateID, and the Data Preview also shows the value 23, which represents the maximum state ID value currently in the target table.
+
+Now that we have this additional source correctly configured, the next step is to merge this source with the main data flow. By doing this, we can use the maximum state ID value retrieved from the target table (which is 23 in this case) and add it to the newly generated surrogate IDs. This will ensure that the new state names are assigned IDs starting from 24 and 25, instead of 1 and 2.
+
+We will configure this merge logic and update the data flow in the next lesson so that the surrogate key generation dynamically starts from the maximum state ID value already present in the target table.
+
 # **S) Dimension Table Load - Merge Max SK with Source Using JOINER Transformation**
+
+When we previously used the additional source last time, we had a common column name between the mainstream source coming from the source file and the sink table. However, this time we only have the maximum state ID, and the state ID value is not at all appearing in the mainstream source file. If you inspect the data, you can see that there is no state ID column anywhere. The only place where the state ID is generated is at the surrogate key output. The state ID values in the surrogate key are generated sequentially, such as one and two for each of the source rows passing through. These generated values will never match the state ID values present in the additional source that we created from the sink table.
+
+Now, we need to identify a way to match this additional source with the mainstream source coming from the source file. Probably, we need to apply a specific logic to join the mainstream source with this additional source. From the source, we are getting the state name values, and in the lookup stage, we are comparing the state name values against the existing state name values in the sink table. If the state name does not exist in the sink, then only we pass that record to the next step, and those records are the ones that get inserted into the target table. This means that the state name value coming from the mainstream will never be null after the filter transformation. Only such non-null records will get inserted into the target table.
+
+Similarly, if any state ID exists in the target table, then this maximum state ID value also will not be null. Therefore, we are going to use these two conditions to join these two sources. Probably, I will do a data preview here. Again, it will bring the two state names we have deleted from the target table earlier. Based on the logic that we discussed, Himachal Pradesh and Uttar Pradesh will be appearing as the state name values in the mainstream source.
+
+In the filter stream output, we can see these two state names. The state ID already exists as eight in the target table, and hence it will not be null. The 23 value we see here has nothing to do with the state names themselves; therefore, we cannot use these values to match. Whenever two sources are created, we must merge them together in the main stream. Otherwise, we cannot use the values coming from the other source or make any decisions based on that data.
+
+Now, we need to join the maximum state ID value that we derived from the sink table with our mainstream source. To achieve this, we are going to use the Joiner transformation. By applying the Joiner transformation, both the maximum state ID value and the new state ID value will be available before loading the data into the target table. So, I am going to include the Joiner transformation this time to join these two datasets.
+
+The Joiner transformation is a multi-input transformation, so it requires two input streams to be connected to it. In our case, the left stream is already connected from the output of the filter transformation, which contains the new state name values that need to be loaded into the target table. The right stream will be the new source that we created — basically, the source containing the maximum state ID.
+
+Now, within the Joiner transformation, we can set five different types of join conditions based on the column names that we select. However, in this case, we do not have any common column names between the two sources. The output of the filter has a column named state_name, and the output of the maximum state ID source has a column named maximum_state_id. These two columns are not the same and cannot be joined directly.
+
+If we had a common column name, we could specify the join type accordingly. For example, if we selected an inner join, only the matching records between these two sources would pass through after the join. If we selected a left join, all records from the left stream would pass through, and only the matching records from the right stream would be included. In a right outer join, all the records from the right stream (which is the third source) would pass through after the transformation, and only the matching records from the main stream would be included. If we set a full outer join, then all of the records from both sources would pass through after the join transformation.
+
+However, none of these standard join types are useful for our current scenario. Instead, we need to define a custom join condition based on the data we have. One dataset consists of filtered new state name values, and the other dataset contains the maximum state ID value. Both of these values are not null, and we only need to pass the records where these conditions hold true. After this inner transformation, we will set that configuration using the custom join type in the next lesson.
 
 # **T) Dimension Table Load - Merge Max SK JOINER Transformation Custom Join Condition**
 
+We don’t have a common column name between the filtered new stream and the source containing the maximum state ID. That’s why we are going with the custom join type. This is a really special case because such join conditions cannot be easily implemented directly within a database. It is one of the more complex and powerful features available in Azure Data Factory (ADF).
+
+We opened the Expression Builder in the Joiner transformation to define the logic. The condition we need to implement is that the state name coming from the mainstream source should not be null, and the maximum state ID value coming from the sink table should also not be null. If both these conditions are met, then the records should be passed through after the join transformation — that’s exactly what we are trying to achieve here.
+
+Now, there is no direct IS NOT NULL function available in ADF Data Flow expressions. If you search for IsNull, you will find that only the IsNull() function exists. Therefore, we must use the IsNull() function in combination with the NOT operator. In the expression builder, there is a section in the middle where operators are listed — we will use the NOT operator from there. First, click on NOT, and then open and close brackets to form the expression. Inside the brackets, specify IsNull() for the first column you want to check. So the expression becomes Not(IsNull(state_name)) — this ensures that the state name coming from the mainstream source file is not null.
+
+Next, we need to add another condition for the maximum state ID value. We use the AND operator, which is also available among the operators in the middle panel of the expression builder. The second condition will be Not(IsNull(max_state_id)). Combining both, our final expression becomes:
+
+Not(IsNull(state_name)) && Not(IsNull(max_state_id))
+
+This means that only records where both the state name and maximum state ID are not null will pass through the join transformation.
+
+After applying this condition, if we look at the data preview of the join transformation, we will see that the two state names we deleted from the target table — Himachal Pradesh and Uttar Pradesh — are now appearing correctly in the output. Each of these state names is now associated with the maximum state ID value derived from the sink table.
+
+If we further look at the output of the Surrogate Key transformation, we can see that it has generated new surrogate key values such as 1 and 2 for these new rows. Meanwhile, the maximum existing state ID value coming from the sink table is 23. Now, if we add these two values together, we will get 24 and 25 — which are the correct new state IDs that should be assigned to these two new state names.
+
+Basically, what we are doing here is overcoming the limitation of the Surrogate Key Generator transformation, which always starts generating keys from 1 for each new load. Instead, we are building our own logic to incrementally generate state ID values based on the existing maximum state ID value in the sink table.
+
+The surrogate key generator output gives us the new surrogate values (1 and 2). In the Derived Column transformation, we will now create a new column named new_state_id. In the expression editor, we will define it by adding the maximum state ID value from the target table to the state ID generated by the surrogate key transformation. This means our expression will be something like:
+
+new_state_id = max_state_id + state_id
+
+This ensures that for the new state name records, the state IDs will be correctly calculated as 24 and 25.
+
+In the Sink mapping, we must ensure that the new column new_state_id is mapped to the state_id column in the target table, not the one directly generated by the surrogate key generator. This is because the surrogate key-generated values (1 and 2) already exist in the database table and we don’t want to reuse them. By using our derived column instead, we ensure that the state ID values remain consistent and incremental based on existing data.
+
+Once the mapping is properly configured, we can publish the changes and run the pipeline again. During this run, the two state name values — Himachal Pradesh and Uttar Pradesh — will be inserted into the target table with the correct state ID values 24 and 25.
+
+After the pipeline execution completes successfully, we can verify the results in the SQL Server database. When we query the target table, we will see that Himachal Pradesh and Uttar Pradesh are indeed loaded with state IDs 24 and 25 respectively. This confirms that the logic works perfectly.
+
+We have made excellent progress here. Throughout this single data flow, we’ve managed to explore and apply a variety of transformations available in ADF. For example, under the multiple input/output section, we used both the Join and Lookup transformations. Under the schema modifier section, we used Derived Column, Select, Aggregate, and Surrogate Key transformations. In the row modifier section, we used the Filter transformation. And finally, we also configured the Sink transformation for output.
+
+This is a very good starting point because we now have a proper logic for developing and loading dimension tables using Data Flows in Azure Data Factory. However, we have not yet parameterized our source and sink datasets. That will be our next step — in the upcoming session, we will develop one more data flow where we parameterize everything for the Reporting Dimension Table Load.
