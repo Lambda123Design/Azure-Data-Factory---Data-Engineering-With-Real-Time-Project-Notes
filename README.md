@@ -1141,18 +1141,236 @@ Following this process, we have created four groups of business description colu
 
 # **E) Logical Data Modelling - Designing Dimension Tables**
 
+The next step is creating the dimension table for each group of business description columns that we identified in the previous step. Now, we need to understand what a dimension table is. A dimension table is basically a terminology used in dimensional data modeling to store or identify the group of business description columns that have a one-to-one relationship together as a single table.
+
+So, we need to copy all of the groups that we identified in the previous step and convert each group into a dimension table. Logically, we can start by naming them. The first one can be called dim_state, where dim stands for dimension. This is the standard naming convention followed in most projects, so we’ll adhere to the same practice here. The next one will be dim_market, followed by dim_product, and finally dim_variety.
+
+Now, we have successfully changed each group into its respective dimension table reference. The next step involves creating a surrogate key for each dimension table.
+
+So, what is a surrogate key? If you look at it closely, when we talk about a one-to-one relationship, it means that each group or each dimension table will store only the unique values of the columns that we identified earlier. For example, in the source file, the state name might be repeated multiple times. However, when we store it in the reporting database, we don’t need to store all the repeated state name values. Instead, we will identify the unique state name values from the source file, and for each of those unique state names, we will assign an ID value. This ID will be used as a reference in the reporting database to link the state information between tables.
+
+Therefore, we need to create a unique ID column in each dimension table to represent the dimension attributes we are storing. This is what the current step is about. We’ll copy all of the dimension tables and include an ID column in each of them.
+
+For instance, the state name will have a new surrogate key called state_id, which we are going to generate and populate using the Data Factory pipeline. Similarly, the market dimension will have market_id. In the product dimension, we have two elements, but since the product group name does not change for each product, we will assign only one ID column for the product dimension. Finally, the variety dimension will have variety_id as its surrogate key.
+
+We will keep the columns we are adding (the surrogate keys) in a different color from the actual columns coming from the source so that it’s easier to distinguish them. Now that we have included surrogate keys for all the dimension tables, we can arrange all the columns properly in a single row view rather than spreading them across columns. This helps us clearly visualize all the dimension tables side by side.
+
+With this, we have successfully included the surrogate keys into each of the dimension tables. The next step in the process is identifying the fact table, which we will discuss in the upcoming lesson.
+
 # **F) Logical Data Modelling - Designing Fact Tables**
+
+We have almost completed our dimension table creation steps, and now we are moving on to the fact table creation step. A fact table is a terminology used in dimensional data modeling to store the business measure column values. In other words, it contains the quantitative data or numerical metrics that represent business performance.
+
+So, as per our model, we need to create a fact table for our daily pricing data. We will name this table fact_daily_pricing. In this table, we will include all the business measure columns, which capture the measurable aspects of the business process.
+
+To better understand this, let’s focus on the business measure values themselves. If we hide all the business description columns and only look at the business measure values, these values alone don’t convey any meaning. For example, if we just see a number like 23 in the dataset, it doesn’t make sense unless we know which product, which market, and which state that value belongs to. Without the context provided by business description columns, the numbers are meaningless.
+
+In the source data, all these columns existed together in a single file, so we could easily relate the measure values with their corresponding descriptive attributes. However, now that we have split the data into multiple dimension tables and a fact table, the relationships must be re-established using keys. Therefore, when creating the fact table, we must link it to the dimension tables using foreign keys.
+
+These links will not be based on the original business description columns (like state name or market name) but instead on the surrogate keys we created earlier. Each dimension table now contains a unique surrogate key (for example, state_id, market_id, product_id, and variety_id). In our pipeline development, we will use these surrogate keys to join the fact table with the respective dimension tables.
+
+Hence, the fact table will include both the business measure columns and the surrogate key columns from the dimension tables. This structure ensures that each fact record is connected to the correct business context — such as which product, market, or state it refers to. That’s essentially how the fact table is designed and created.
+
+Now, we have almost reached the final step — creating the dimension table for date columns. As mentioned earlier, date is a default and essential dimension in any reporting database. Without a date, it’s impossible to track or analyze data over time, since every business event occurs at a specific point in time. Therefore, we will include a date dimension table by default in our reporting schema.
+
+For now, we’ll include only the date_id column — a surrogate key representing each unique date. The date dimension table is typically pre-populated, as dates can be derived and generated in advance (for example, one entry for every day of the year). This pre-population process is something we’ll handle in one of our upcoming jobs.
+
+So far, we have successfully identified and defined both our dimension tables and fact tables. However, at this stage, we are only performing logical data modeling. That means we are focused on understanding and designing the structure conceptually — without worrying about how these tables will be physically created in the reporting database, which naming conventions will be followed, or what data types each column will have.
+
+In the next lesson, we will move to physical data modeling, where we will learn how to implement these identified dimension and fact tables in the reporting database, define the appropriate data types, and follow best practices for naming conventions and database design.
 
 # **G) Physical Data Modelling Overview**
 
+Now, we are moving on to the physical data modeling phase, which is based on the output from our logical data modeling. From the logical model, we have already identified a set of dimension tables and one fact table. In this step, we will take all those identified tables and apply the necessary steps involved in physical data modeling to complete our overall dimensional data model design.
+
+To begin, we will copy all the dimension tables together, along with the fact table that we identified earlier during the logical data modeling phase. Once we have them all in one place, we can start the physical data modeling process systematically.
+
+The first step in physical data modeling is to identify the data type for each column in the logical data model tables. It’s important to note that we do not define data types for the tables themselves — only for their columns. Data types determine what kind of data (for example, text, number, or date) can be stored in each column when we implement the model in the reporting database.
+
+Let’s take the Dim_State table as an example. This table contains two columns. Since we are now preparing to implement this table in the actual reporting database, we must specify appropriate data types for each of its columns. When creating dimension and fact tables physically, defining data types is a crucial step because it ensures proper data storage, consistency, and query performance.
+
+To make the process clearer, we will organize our tables and columns in a structured layout. We’ll create a header called Table_Name, where we will list all the table names. Next to that, we’ll have another header called Column_Name, where we’ll list all the columns corresponding to each table. This arrangement helps us visualize and understand which columns belong to which table more effectively.
+
+After rearranging, we will include all the dimension tables and the fact table that we captured earlier. We’ll also ensure that the Dim_Date table is added here, so that we don’t miss anything. The Dim_Date table contains the columns date_pricing and date_id, which are part of our date dimension.
+
+Now, we have successfully listed all the dimension tables and the fact table that were identified during the logical data modeling stage. The next step in this process is to assign data types to each of these columns appropriately. This step will be performed in the upcoming phase of our physical data modeling process.
+
 # **H) Physical Data Modelling - Identifying Data Types**
+
+Now, we are going to identify the data type for each of the columns that we defined earlier during our logical data modeling. The data type determines how data will be stored in the database, and since we are using the SQL Server database for our reporting system, we will use the data types available in SQL Server. We can choose the most suitable data type for each column based on the type of data it will hold.
+
+Let’s start with the state name column. To decide the correct data type, we first need to know what kind of values are coming from the source. Since the state name is a text value, we’ll need to assign a text-based data type. Additionally, we must check the length of the values coming from the source file to determine the maximum number of characters used.
+
+To find this, we can use an Excel function to calculate the length of each state name and identify the longest one. After applying the filter, we find that the maximum state name length is 18 characters. To be on the safe side, we will define the data type as VARCHAR(100). This ensures that all possible state name values will fit comfortably without truncation.
+
+We can also confirm that SQL Server supports the VARCHAR data type. The benefit of using VARCHAR is that if the value stored doesn’t use the full defined length, SQL Server will not allocate that extra space — making it efficient in terms of storage. Hence, VARCHAR(100) is a good choice for the state name column.
+
+Next, let’s move to the state_id column. This column will contain a surrogate key, which means it will store a sequence of numbers generated for each unique state. Therefore, we will use an INTEGER data type. According to Microsoft’s documentation, the integer data type can store values up to billions, which is far more than what we’ll need in this case. Hence, INTEGER is sufficient for all ID columns.
+
+We’ll apply the same logic for all other ID columns across the dimension and fact tables, such as market_id, product_id, variety_id, and date_id. To maintain consistency, we’ll use INTEGER in uppercase for all these columns, since these are the key identifiers used to link tables.
+
+Now, let’s look at the market name column. We’ll examine the source data to determine the maximum length of the market name. Using the same Excel function, we find that the maximum length is 41 characters. To stay consistent and safe, we’ll again use VARCHAR(100) for this column. The same logic applies to product name and product group name — even if their current lengths are less than 100, defining them as VARCHAR(100) ensures flexibility for any new or longer values that may appear in future data files.
+
+This is the typical process followed in real-world projects — we identify what values are being stored in each column, determine their maximum lengths, and then decide the appropriate data type and its length accordingly. By using VARCHAR(100) for all string columns, we ensure that no values will be truncated and that there’s enough room for potential future growth in data size.
+
+Now, let’s move on to the numerical columns such as arrival_intent, minimum_price, and maximum_price. Since these values can contain decimals, we need a data type capable of storing decimal values accurately. In SQL Server, the DECIMAL data type allows specifying both precision and scale. Precision determines the total number of digits, and scale specifies how many of them appear after the decimal point.
+
+We can store up to 38 digits in a decimal type, which is more than enough for our needs. After reviewing the product pricing data, we find that the largest whole number goes up to around five digits. Therefore, to stay on the safe side, we’ll use DECIMAL(18,2) — which allows up to 16 whole numbers and 2 decimal places. This will ensure that all our pricing-related values are stored accurately without loss of precision.
+
+Next, let’s look at the date_pricing column. This column comes directly from the source data and represents a date value. For this, we will use SQL Server’s DATE data type, which can efficiently store date information without including time components. Finally, the date_id column will again use the INTEGER data type, since it serves as a surrogate key representing each unique date.
+
+With this, we have completed the first step of physical data modeling, where we identified and assigned the appropriate data types for all columns across our dimension and fact tables. In the next lesson, we will continue with the subsequent steps of the physical data modeling process to further refine and implement our dimensional model.
 
 # **I) Physical Data Modelling - Applying Naming Conventions**
 
+The next step in our process is to apply proper naming conventions to all table names and column names.
+
+Fortunately, most of the naming conventions have already been applied — for instance, I’ve used underscores (_) in column names instead of spaces. This is a crucial best practice because spaces in object names can create unnecessary issues when building or querying database tables.
+
+When converting our logical dimension tables into physical dimension tables, it’s important that we follow consistent and standardized naming conventions. This ensures that the tables can be easily created, maintained, and referenced in the actual reporting database without running into syntax or compatibility problems.
+
+Therefore, for each of the dimension tables, I’ve replaced any spaces in the table names with underscores. I’ve followed the same process for the fact table as well. Remember — even the fact table name should not contain any spaces.
+
+These steps align with standard database best practices, which emphasize using underscores and lowercase letters for naming database objects to maintain clarity and avoid errors.
+
+I’ve now copied and renamed all relevant tables accordingly, including the last one — the dim_datetime table — where the space has also been removed.
+
+Now, moving to the next step — since we are working on a dimensional data model, this structure is typically created within the logical layer of a data analytics project. In practice, this layer is often referred to as a data mart, data warehouse, or star schema — all of which represent similar concepts used to organize and store analytical data efficiently.
+
+As part of building this physical data model, we also need to include auditing columns in each table.
+
+These columns are essential because we are responsible for populating and maintaining these tables. Having audit columns allows us to track when each record was created and when it was last updated in the reporting database.
+
+This additional logging helps us ensure data integrity, maintain accountability, and trace data changes over time.
+
+So, for every table — whether it’s a dimension table or a fact table — we will add a few extra columns specifically for auditing and logging purposes.
+
 # **J) Physical Data Modelling - Including Audit Columns and Define Database Schema**
+
+The next step is to add ARD Reporting Database Audit Columns.
+
+Now, what is meant by “audit”?
+
+For example, suppose we are loading a specific table that contains a unique list of state names and state IDs. In such cases, we need to know when a particular record was inserted into the reporting database. Later, if the same record is updated, we should also be able to identify on what date and time that update took place.
+
+This process of maintaining audit information helps us have better understanding and control over the data we store in the reporting system. The reporting database is typically loaded on a daily basis, and sometimes a specific error might be ignored or an error log might be missed on a particular day. If a user raises an issue at a later time, we must be able to verify when that specific record was created and when it was last updated.
+
+In some cases, even the source system may send incorrect information. If we have the audit details stored, we can easily trace back and confirm that on a specific date we received incorrect data from the source. This helps us in identifying and rectifying data issues efficiently.
+
+Both of these audit columns are designed to store datetime values, which capture the exact timestamp when each record was inserted and when it was updated in the reporting database. This is considered a standard best practice that we follow in all professional reporting database designs.
+
+Therefore, we need to include these two columns in all the tables that we have created so far. By doing so, we will be able to maintain a better track of the data being loaded into the reporting database and ensure proper data governance.
+
+Just to clarify once again for your reference: all the text shown with a white background represents columns that we will create and populate ourselves, whereas the text in the blue background represents columns that come directly from the source file.
+
+We are responsible for developing the data pipelines that will load these tables with data from the source systems. However, before we can build those pipelines, we first need to create the tables in the database. And before we create those tables, we must first create the reporting database itself in our Azure tenant. That’s exactly what we will be doing in the next lesson.
+
+After completing all the steps in physical data modeling, the final step in physical database modeling is to identify and create the database schema. The database schema will serve as the logical structure that holds all of our tables.
+
+The database stores data in the form of tables, which represent the storage layer of our reporting system. Within a single database, we can have multiple schemas, meaning that several applications can store their data in the same database, each within its own schema.
+
+For our reporting-specific tables, we should be able to easily identify and group them separately. A schema name functions similarly to a folder name in normal file storage. It serves as a logical grouping of a specific set of tables inside the database, making them more organized and easier to manage.
+
+For our project, we will create a schema named reporting. Once we have created the database, we will come back here and define this schema name inside the reporting database.
+
+At this point, we have completed all the physical data modeling steps. The next step is to create the SQL Server database in our Azure account and then start creating these tables within that database.
+
+I’ll see you in the next lesson where we begin setting up the Azure SQL Server and the reporting database.
 
 # **K) Setup AZURE SQL DATABASE - Overview**
 
+We have now completed designing the reporting database using the dimensional data modeling technique. As the output of this modeling process, we have identified a set of dimension tables and a single fact table.
+
+The next step is to create these dimension and fact tables in the SQL Server database and then proceed to develop the Azure Data Factory (ADF) pipeline that will load data into these tables.
+
+To begin this process, we will first create the Azure SQL Database resource within the Azure Cloud environment. Once the database resource is successfully created, we can then move forward to implement the dimension and fact tables — specifically, the star schema design that we identified earlier as part of our dimensional data modeling phase.
+
+This will establish the foundation for our reporting database, enabling us to perform efficient data loading, transformation, and reporting through our Azure Data Factory pipelines.
+
 # **L) Azure SQL Database Query Editor Overview**
 
+The database and the database server have now been successfully created. When you go to Resources in the Azure portal, it will open the database overview window. This overview displays important details about your database, such as its name, location, and connection information.
+
+If you need to connect to the database externally, you must use the server name provided in this overview. Within the Azure portal, you will also find the Query Editor window. This editor allows you to quickly connect to and interact with your database directly inside the Azure environment.
+
+When connecting to the database, you can use either Microsoft Entra Authentication or the SQL username and password that you created earlier while setting up the database server. If you choose the username option, simply go back to your database server, select Go to Resources, open the Query Editor, and provide the password that you configured during creation. Once authenticated, you will be successfully connected to your database server.
+
+There are two ways to connect to your database — using Microsoft Entra Authentication or your SQL username and password. Both of these methods will work and allow you full access to the database. Once connected, if you want to store any data, the basic object that you need to create is a table.
+
+At the moment, there are no tables in our database, which is why nothing is displayed under the tables section. Other database components such as views, stored procedures, and user-defined functions can be created later once we have the proper requirements. For now, the table is the most fundamental object we must create before exploring any additional components in the database.
+
+We have already identified the database tables from our dimensional data model. As an example, let’s start by creating the DimState table. I will now teach you the SQL syntax used to create tables — it’s quite simple and easy to follow, even if you’re new to database servers.
+
+To create a table, we use the SQL command:
+
+CREATE TABLE <table_name> ( ... );
+
+You first specify the table name, followed by an opening and closing bracket. Inside these brackets, you provide a list of columns along with their respective data types.
+
+For now, we will create just one table to learn how the CREATE TABLE command works. If you already have the column names and data types prepared in an Excel sheet, you can copy and paste them directly into the Query Editor. When you do so, make sure that each column definition is separated by a comma, except for the last one — otherwise, the SQL command will fail.
+
+Once everything is ready, run the SQL command. This will create the table in your database. If you don’t see it immediately, click the Refresh button, and it will appear under the list of tables.
+
+You’ll notice that the table was created with the name dbo.DimState. The prefix dbo refers to the database schema. In SQL Server, a schema is a logical grouping of database objects such as tables, views, and stored procedures.
+
+Since we did not specify a schema name during table creation, SQL Server automatically used the default schema, which is called dbo. The dbo schema is built into every SQL Server database by default.
+
+However, in our case, we have already decided to use a custom schema for our reporting database. Therefore, we do not want to keep this table under dbo. Instead, we will drop this table and recreate it under the correct schema.
+
+To drop a table, we use the SQL command:
+
+DROP TABLE <schema_name>.<table_name>;
+
+You can either prefix it with dbo or leave it out. If you omit the schema name, SQL Server assumes the dbo schema automatically. So if you run the command DROP TABLE DimState, it will look for the table under the dbo schema and remove it.
+
+If you only want to execute a specific SQL statement inside the Query Editor, simply select that line and click Run. After executing the drop command, you can click the Refresh button again to confirm that the table has been deleted from the database.
+
+Next, since we have planned to use the reporting schema, we need to create the schema before creating any tables under it. To create a schema, the SQL syntax is:
+
+CREATE SCHEMA reporting;
+
+After running this command, you’ll see a message that says “Query succeeded. Affected rows: 0.” This means the schema was created successfully.
+
+Now, we can go ahead and create our first table under this new schema. To do this, we prefix the table name with the schema name followed by a dot. For example:
+
+CREATE TABLE reporting.DimState ( ... );
+
+Here, the dot (.) separates the schema name and the table name.
+
+If you try to create this table and receive an error stating “There is already an object named DimState in the database,” it likely means the table was already created earlier during previous runs. You can confirm this by expanding the Tables section in the Query Editor — you’ll be able to see the table name along with all the columns and data types that you defined.
+
+The Query Editor also allows you to execute simple queries. For instance, you can check the data in a table by running:
+
+SELECT TOP (100000) * FROM reporting.DimState;
+
+Currently, this query won’t return any rows since we haven’t loaded any data yet.
+
+In summary, the Azure Query Editor is a powerful and convenient tool that enables you to connect to your database, execute SQL commands, create schemas and tables, and query data — all directly within the Azure portal.
+
 # **M) SQL Server Management Studio Overview**
+
+Another commonly used SQL Server database client tool for connecting to and managing databases is called SQL Server Management Studio (SSMS). This is a powerful and user-friendly application that provides a graphical interface to interact with your SQL databases.
+
+I will provide you with the download link for SQL Server Management Studio. You can download it directly onto your computer and proceed with the installation. The setup process is straightforward — once installed, you can open the application to begin using it.
+
+When you first open SQL Server Management Studio, you will see a connection window where you need to enter the Server Name. The server name can be copied from the database overview window in your Azure portal. Simply go to your Azure SQL Database resource, copy the server name, and paste it into the SSMS connection dialog box.
+
+Next, under the Authentication section, you will notice that SSMS supports multiple authentication types. The two main options are:
+
+(i) Azure Active Directory – Universal with MFA (Multi-Factor Authentication)
+
+(ii) SQL Server Authentication
+
+For this example, we will use SQL Server Authentication. You will need to provide the username and password that you set up while creating the Azure SQL Database server. Once you have entered these credentials, click on Connect to log in to the database server.
+
+After a successful connection, SSMS will display the Object Explorer panel on the left-hand side. This panel shows the list of all databases available on the connected server. You can expand the databases to explore their objects — such as tables, views, stored procedures, and more.
+
+Inside the database, you will be able to see any tables that have already been created. For instance, earlier we created a table called reporting.dim_state. You should be able to locate this table within the reporting schema in the Object Explorer.
+
+If you want to view the data stored inside this table, SSMS provides a convenient feature. You can simply right-click on the table name and select “Select Top 1000 Rows”. This will automatically generate a SQL query in a new query window that retrieves the top 1,000 records from the table.
+
+To execute this query, click the Execute button on the toolbar (or press F5). The results will then appear in the Results pane below the query window. Since we have not loaded any data into the table yet, the result set will be empty — but this step confirms that your table is accessible and ready for data loading.
+
+At this point, you can choose to continue working with either SQL Server Management Studio or the Query Editor inside the Azure portal. Both tools serve the same purpose — allowing you to interact with the database, run queries, create tables, and manage objects.
+
+Whichever tool you find more convenient or comfortable to use, you can continue with that for your upcoming database development and management tasks.
