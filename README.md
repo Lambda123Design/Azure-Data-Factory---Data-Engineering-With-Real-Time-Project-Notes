@@ -143,6 +143,48 @@ This Repository contains my Notes of "Azure Data Factory - Data Engineering With
 
 **M) SQL Server Management Studio Overview**
 
+**VII) Dimension Tables Load - ADF DATAFLOW Overview**
+
+**A) Dimension Table Load Overview**
+
+**B) Dimension Table Load - Data Transformations Overview**
+
+**C) Dimension Table Load - Configure Source Dataset**
+
+**D) Dimension Table Load - Configure SQL Database Linked Services and Sink Dataset**
+
+**E) Dimension Table Load - COPYDATA Limitations and Usage Requirement for DATAFLOW**
+
+**F) Dimension Table Load - DATAFLOW Overview**
+
+**G) Dimension Table Load - DATAFLOW SELECT Transformation**
+
+**H) Dimension Table Load - DATAFLOW AGGREGATE Transformation**
+
+**I) Dimension Table Load - DATAFLOW EXPRESSION BUILDER Overview**
+
+**J) Dimension Table Load - DATAFLOW SURROGATE KEY Transformation**
+
+**K) Dimension Table Load - DATAFLOW DERIVED COLUMN and SINK Transformation**
+
+**L) Dimension Table Load - Recap DATAFLOW Transformations & Debugging DATAFLOW**
+
+**M) Dimension Table Load - Change Data Capture (CDC) Overview**
+
+**N) Dimension Table Load - Change Data Capture Add Sink Data Into Source Stream**
+
+**O) Dimension Table Load - Change Data Capture LOOKUP Transformation**
+
+**P) Dimension Table Load - Change Data Capture FILTER Transformation**
+
+**Q) Dimension Table Load - Change Data Capture SURROGATE KEY Limitation**
+
+**R) Dimension Table Load - Change Data Capture Get Max SURROGATE KEY Using Query**
+
+**S) Dimension Table Load - Merge Max SK with Source Using JOINER Transformation**
+
+**T) Dimension Table Load - Merge Max SK JOINER Transformation Custom Join Condition**
+
 
 
 
@@ -1374,3 +1416,272 @@ To execute this query, click the Execute button on the toolbar (or press F5). Th
 At this point, you can choose to continue working with either SQL Server Management Studio or the Query Editor inside the Azure portal. Both tools serve the same purpose — allowing you to interact with the database, run queries, create tables, and manage objects.
 
 Whichever tool you find more convenient or comfortable to use, you can continue with that for your upcoming database development and management tasks.
+
+# **VII) Dimension Tables Load - ADF DATAFLOW Overview**
+
+# **A) Dimension Table Load Overview**
+
+We have completed loading the data from the web service into the landing layer in our data analytics project. After that, we moved on to developing the reporting layer of the project. As part of this phase, we started with dimensional data modeling and successfully completed it. Through this process, we identified the list of reporting dimension and fact tables that need to be created.
+
+Next, we set up an Azure SQL Database and created the reporting database within it. In this Azure SQL Database, we have already created one dimension table. Now, the next step is to develop the Data Factory transformation pipelines to load data into the reporting dimension tables. This is what we are going to start working on in this section. I’ll see you in the next lesson.
+
+# **B) Dimension Table Load - Data Transformations Overview**
+
+We have identified and set up several dimension tables and one fact table that need to be loaded to create our reporting database. Let’s begin by developing the pipeline for our first dimension table.
+
+In a real-time project, you will typically receive a document called the Source to Target Mapping Document. This document contains the basic transformation rules that need to be applied while populating your dimension table. I have taken our first dimension table and included it in the Source to Target Mapping Document, along with all the details we have so far. Additionally, I’ve added some extra columns to this document, similar to what you would find in a real project.
+
+For each column in the table, the document specifies the source location, and if the source is a file, it includes the source file name. It also indicates which source column needs to be mapped to the corresponding dimension table column, along with any transformations, filter conditions, or join conditions that need to be applied.
+Let’s start filling out these details based on our understanding. We know that the source data comes from the landing container. We will not refer to the original HTTP web server source, because the purpose of the ingestion pipeline is to bring the source data into the data analytics platform. Therefore, all the data needed to develop our dimension table currently exists in the landing container.
+
+We are going to read the data from the landing container’s daily pricing folder. While there are some datasets available in the labs folder for reference, the actual data for building our transformation pipeline will come from the landing/daily pricing folder. So, we can mention the source location as the landing container and the daily pricing folder in the Data Lake Storage account.
+
+For now, we’ll refer to any one of the source file names, but in practice, we need to load data from all the source files into the dimension table. We’ll handle that part a little later—right now, we’ll work with a single file.
+
+As mentioned earlier, any column highlighted with a specific background color indicates that its value is coming from the source file. So, we can copy the source column name directly as it is to maintain consistency in how each column is populated.
+
+We have now seen how the DimState table is going to be populated. The goal here is to extract all the state name values from the source, identify the unique state name values, and load only those into the dimension table—excluding duplicates. In Excel, this would be done using the “Remove Duplicates” feature, and we’ll perform the same kind of operation using Data Factory transformations.
+
+So, the transformation rule for the StateName column is to identify and load unique state name values from the source. The filter conditions are not applicable here because we are reading data from a single source, and join conditions aren’t relevant either since we aren’t joining multiple sources.
+Next, for the StateID column, we will derive it while populating the reporting table. We’ve decided to generate a running number for each unique state name value. Therefore, there’s no direct source file or column for this — we’ll set the source location as “derived” and apply the transformation rule to generate unique IDs for each state.
+
+For the VWCreatedDate and VWUpdatedDate columns, these are used for auditing purposes, allowing us to track when the records were loaded. We’ll map both these columns to the system date.
+
+Now that we’ve identified all the requirements for loading the DimState table, we can move on to implementing this process in Azure Data Factory in the next lesson.
+
+# **C) Dimension Table Load - Configure Source Dataset**
+
+We have identified the transformation rules required to load the Dimension State table. So, let’s start implementing them in Azure Data Factory.
+
+We know the process now — our source data exists in the Landing/Daily Pricing folder. The file named ProductWiseMarketWiseDailyReport_0101_2023 will serve as our source. Our sink will be the new dimension table that we created in the SQL Server database.
+
+As per Azure standard practice, we need to create the dataset first. Since we are still exploring how to load this dimension table, we’ll create the dataset under the Working Labs folder before moving it to the final destination folder.
+
+Right-click the Working Labs folder and create a new dataset. Our first dataset exists in the Data Lake Storage Gen2 account. Please note that now, our source is the landing layer — not the original source web service. That’s the main reason why we ingested all the data into the landing layer in the first place.
+
+The landing layer is stored under the Azure Data Lake Storage Gen2 account, and our source files are located there. These files are delimited text files, so we’ll create the dataset accordingly and provide a meaningful name.
+
+We have already created some datasets that point to the landing container, but those datasets were used as sink datasets in the ingestion pipelines. Now, we’re going to use this ingested data as the source for loading the reporting dimension table.
+
+It’s better to create a new dataset with a proper naming convention. I’ve included “landing source” in the dataset name to make it clear. We can continue using the same linked service as before and browse through the files stored under landing/daily pricing/. For now, we’ll point to one specific file.
+
+We also need to parameterize this dataset, and we already know how to do that. But before parameterizing, we’ll first experiment with how to design the transformation pipeline for loading this dimension table.
+
+Now that we’ve created our source dataset, it’s important to import the schema from the source file. This step is crucial because we need access to the column names for mapping. For instance, according to our Source to Target Mapping Document, we need to read the StateName column from the source file. Without importing the schema, we won’t be able to reference that column.
+
+To import the schema, after creating the dataset, click on “Clear” and then select “Import schema from connection/store”. This will automatically detect the first record as the header and bring in the column names as the schema. These represent the actual column names in the source file.
+
+So, we’ve now created our source dataset that points to the file in the Landing/Daily Pricing folder.
+
+Next, our sink dataset will point to the DimState table. Currently, we don’t yet have a linked service that connects to the new SQL Server database we created. So, the next step is to create a linked service for connecting to that database, and then we can create the sink dataset.
+
+Although it’s possible to create the linked service while setting up the dataset, this time, we’ll use the Manage tab in Azure Data Factory. Under the Manage tab, there’s a section for Linked Services, where we can create a new one.
+
+In the ingestion pipeline development earlier, we created both linked services directly while creating the datasets. But this time, we’ll explicitly create the linked service under the Manage → Linked Services section and then use it for our new sink dataset.
+
+# **D) Dimension Table Load - Configure SQL Database Linked Services and Sink Dataset**
+
+Let’s start by creating a new Linked Service to connect to the SQL Server database.
+
+This time, we won’t be choosing Data Lake Storage or HTTP as the data source. Instead, we’ll look for Azure SQL Database, since that’s the database we created to load our reporting data.
+
+Select Azure SQL Database as the connection type and provide a logical name for the linked service — for example, LinkService_AzureSQL_ReportingDB. This name clearly indicates that the linked service points to the reporting database.
+
+From the Azure subscription, we’ll have only one option available, so choose that. Next, select the server name (which we already created) and then choose the database name.
+
+For authentication, select SQL Authentication. You’ll need to enter the admin username and password that were configured when setting up the SQL Server database. Later, when configuring security settings between resources, we may change this authentication type, but for now, we’ll use SQL authentication to establish the connection.
+
+After entering the credentials, perform a Test Connection to verify the configuration. If everything is set up correctly, the connection should be successful. Once confirmed, we have successfully created a new Linked Service to connect to the Azure SQL Reporting Database.
+
+As soon as the linked service is created, make sure to publish the changes so that it’s saved and available for reuse in other datasets or pipelines.
+
+Now, switch over to the Author tab and create a new dataset for our sink database table, which is the DimState table. For now, create this dataset under the Working Lab folder, so we can experiment with developing the pipeline before moving it to the final destination folder.
+
+Since this dataset resides in the SQL Database, select Azure SQL Database as the dataset type (you can search by typing “SQL” or “Azure SQL”). Provide a meaningful name such as DimState_Lab, since we’ll be experimenting with the pipeline in the lab environment.
+
+Next, point this dataset to the Linked Service (AzureSQL_ReportingDB) that we just created. The linked service will automatically display the list of tables in the connected database. Since we’ve created only one table — ReportingDimState — it will automatically be selected.
+
+At this stage, it’s important to import the schema. Previously, when we were developing ingestion pipelines, importing the schema wasn’t necessary because we weren’t performing transformations at the individual column level. However, now we are working on column-level transformations, so having the schema is essential.
+
+Importing the schema will allow the dataset to automatically detect the list of columns from the DimState table and include them in the dataset structure. This enables us to define specific transformation rules for each column and populate them correctly during the pipeline run.
+
+Now that both the source and sink datasets have been created successfully, go ahead and publish all the changes.
+
+In the next lesson, we’ll start building a new pipeline that reads data from the landing source file and loads it into the SQL Server database table.
+
+# **E) Dimension Table Load - COPYDATA Limitations and Usage Requirement for DATAFLOW**
+
+We have now created both our source and sink datasets. The next step is to create the pipeline that will load data into our sink database table using the source file located in the Landing/Daily Pricing folder.
+
+Let’s start by giving the pipeline a meaningful name. In this case, we’ll name it Load_Reporting_Dim_Table_Lab, since we are working within the lab environment.
+
+As we know, we can use the Copy Data activity to move data from one source to another sink. So, we’ll begin by using the Copy Data activity and configure it to perform the initial data transfer. Let’s give it a clear and descriptive name such as CopyData_Load_Dim_Table.
+
+For the source, we’ll select the dataset that corresponds to Lab 4, as there’s only one file and one dataset pointing to that location. Then, for the sink, we’ll again search for Lab 4 and select the dataset that points to our Azure SQL Database table.
+
+Once configured, you’ll notice that within the Copy Data activity, there’s an option to perform some mapping between source and sink columns. However, this activity doesn’t provide the flexibility to apply the transformation rules we identified earlier.
+
+For instance, in the case of the StateName column, we need to identify the unique state names from the source file before loading them into the target. But the Copy Data activity only allows simple column mappings — it doesn’t let us apply custom transformation logic at the column level.
+
+This limitation becomes even clearer when we consider columns like StateID, DWCreatedDate, and DWUpdatedDate. These columns don’t even exist in the source file — we need to derive their values based on the unique state names. However, the Copy Data activity doesn’t provide any mechanism to generate or transform such derived columns.
+
+Although we can import schemas and automatically map matching columns from source to sink, it doesn’t help in this case. For example, since there’s no StateID in the source file, the activity won’t know how to populate that field. The same applies to DWCreatedDate and DWUpdatedDate — we must generate these values dynamically, which isn’t possible with Copy Data.
+
+Therefore, the Copy Data activity is suitable only for straightforward 1-to-1 mappings, where every column in the sink has a corresponding column in the source and no additional transformations are needed. If your source already contains all the required columns with clean, ready-to-load data, then Copy Data works perfectly.
+
+However, in our scenario, we require column-level transformations, such as generating unique IDs, removing duplicates, and deriving additional fields. This makes Copy Data insufficient for our use case.
+
+In Azure Data Factory, there are only two activities that handle data movement — the Copy Data activity and the Data Flow activity. All other activities (like Set Variable, Lookup, or ForEach) act as supporting operations around these two.
+
+So, it’s important to understand when to use Copy Data and when to use Data Flow:
+
+(i) Use Copy Data when your source file contains all necessary columns and no transformations are required — just a direct transfer from source to sink.
+
+(ii) Use Data Flow when you need to apply transformations, derive new columns, or perform logic at the individual column level.
+
+In this particular case, since our data requires transformations such as identifying unique states and generating new columns like StateID, we must use the Data Flow activity. The Copy Data activity will not work for this scenario.
+
+In the next lesson, we’ll start exploring how to configure and use the Data Flow activity to implement these transformations effectively.
+
+# **F) Dimension Table Load - DATAFLOW Overview**
+
+We have identified that we won’t be able to use the Copy Data activity to perform the necessary transformations required for loading the DimState table. Therefore, we need to use another Move and Transform activity called Data Flow to perform the necessary transformations for loading data from the source file into the DimState dimension table.
+
+So, we will bring the Data Flow activity into the pipeline design. However, I would like to keep the Copy Data activity for some time so that I can explain some quick differences between the Copy Data activity and Data Flow, helping you understand when to use Data Flow and when to use Copy Data.
+
+Next, I will give a reasonable name for the Data Flow activity — Load Dimension Tables. As soon as we go to the Settings section of the Data Flow activity, it opens another design interface known as the Data Flow Canvas. This is likely the last new user interface we will be learning, but it is an important one since we will be developing the actual transformation logic here using the Data Flow.
+
+When you click New, it opens a completely different design interface — the Data Flow Canvas. The Data Flow activity that you add inside the pipeline is simply calling a data flow object. You are actually creating the data flow itself when you click New.
+
+Along with the pipeline, this Data Flow design interface is entirely separate from the pipeline interface. If you want to call a data flow from the pipeline, you use the Data Flow Activity. The Data Flow itself is an independent component, much like a dataset. If you look at the structure in Azure Data Factory, you’ll notice that Data Flows have their own dedicated folder — meaning you can even create them independently.
+
+When calling from the pipeline, we need to use the Data Flow Activity, but for the first time, we’ll create a new Data Flow from within it. We’ll follow proper naming conventions, keeping everything consistent for Lab 4, which involves loading the reporting dimension table. Therefore, I will name it DF_Load_Reporting_DimStateTable_Lab4. We’ll maintain Lab4 as a common tag across all our components for this lab.
+
+Inside the Data Flow Canvas, you have a range of transformations available to perform additional data processing steps. The first task, or transformation, within a data flow is adding a source. Without defining a source, you cannot perform any transformations inside the data flow.
+
+When you click the Add Source button (represented by a plus or arrow icon), it allows you to add your data source. After clicking Add Source, similar to the pipeline interface, the settings window will appear at the bottom. This bottom panel shows configuration settings for the currently selected transformation — in this case, the Source transformation.
+
+Here, there are some naming restrictions — you cannot use spaces, underscores, or hyphens. The name must be a single continuous string. For example, you could name it SourceReadDailyPricingData to keep it logical and clear.
+
+Next, under Source Type, you have an option to choose between Dataset or Inline Dataset. The good thing is that you can reuse the same datasets that are already used in your pipeline. The Dataset is a common component between the pipeline and the data flow.
+
+You can select an existing dataset by choosing the Dataset option, or you can create one on the fly by selecting Inline. For now, we’ll use an existing dataset that we have already created for Lab 4. When we select it, all the datasets available for Lab 4 will be displayed. The ADLS dataset is the first one we will use to read data from the source file.
+
+Once you choose your dataset, navigate to the Projection option. This section displays all the columns present in the dataset schema because it reads the schema directly from the dataset definition. If you open our source dataset schema, you will notice that these same columns appear in the Projection tab.
+
+Apart from that, there are a few additional options, such as Allow Schema Drift. For instance, suppose our current source file contains 12 columns, but in the next file received from the source, there’s an additional column. If we enable Allow Schema Drift, the data flow will still be able to read that file without failing due to the schema change.
+
+There are some other settings as well, but they aren’t directly relevant to our use case right now, so we’ll leave them as default. For now, our focus will be on the Source Settings and Projection options.
+
+In the next step, we’ll apply transformations on the State Name column to identify and extract unique values from the source file — which we will cover in the next lesson.
+
+# **G) Dimension Table Load - DATAFLOW SELECT Transformation**
+
+As I mentioned earlier, there are some additional options available in the Data Flow settings, but we will revisit them later in the course when we discuss performance tuning and defining user-derived columns.
+
+For now, the most useful feature for developers during the early stages of building data flows is the Data Preview option.
+
+While developing, the Data Preview allows you to view the actual data being read from your source file. To enable Data Preview, you must turn on the Debug Cluster. This cluster runs in the background to execute your data flow logic in real time and display preview results. However, if you are not actively using it, it’s recommended to keep it disabled, as it runs for about an hour and can be a bit costly in terms of resources. But while learning, it’s extremely useful because it lets you instantly see the output after each transformation you apply.
+
+From our source file, we only need the State Name column. We don’t require any of the other columns. Before applying the transformation rule to identify unique state names, we’ll first exclude all the unnecessary columns. Keeping only the required column will improve performance and reduce memory consumption during execution. Unused columns consume additional memory space and can slow down the Data Flow job.
+
+To perform these kinds of operations, Azure Data Factory provides a variety of predefined transformations within the Data Flow. While the pipeline handles activities at a higher level (like movement or orchestration), the Data Flow deals with transformations at the column level.
+
+In our case, since we only want to select the State Name column from the source schema, we’ll use a transformation from the Schema Modifier category — the Select transformation. You can add a transformation by clicking the plus (+) icon next to the previous step, which will display a list of available transformations. From that list, choose the Select transformation, and it will appear next to your source transformation in the flow.
+
+Once you select it, the configuration options for the Select transformation will appear in the settings panel at the bottom of the screen. Here, we’ll give a logical name to the transformation and choose the State Name column from the list of available source columns. The Select transformation displays all columns from the source dataset, and we can either deselect all and then check only the State Name column, or manually delete the others one by one.
+
+After this, we can use the Inspect tab to review the columns that will move forward to the next stage of the data flow. Initially, in the source transformation, we can use the Projection tab to view all columns available in the source schema. But going forward, as we build transformations, the Inspect tab becomes more relevant—it shows the columns that will be passed from one transformation to the next.
+
+If we now look at the Inspect tab after applying the Select transformation, it will show only the State Name column from the source, confirming that all unnecessary columns have been excluded.
+
+Next, we need to apply a transformation to identify unique state name values from the source data. Currently, if we preview the output of the Select transformation, it displays all state names as they appear in the source file, including duplicates. Our next goal is to remove these duplicates and extract only the distinct state names.
+
+We will implement the transformation logic for identifying unique State Name values in the next lesson, right before mapping the results into the DimState dimension table in the sink.
+
+# **H) Dimension Table Load - DATAFLOW AGGREGATE Transformation**
+
+In our next step, we need to identify the unique state name values from the list of state names present in our source file. The data already exists in our landing container as a CSV file. If this data were in a database, we could easily use a SQL query with the DISTINCT clause to identify the unique state names. However, since our source is a file, we need to find a workaround to achieve the same result within Azure Data Factory (ADF).
+
+In the source CSV file, there are multiple duplicate state name values, and our goal is to extract only the unique state names from them. To accomplish this, we can use a counting technique that helps us identify how many times each state name appears.
+
+If we calculate the count of state name values, the result will show each unique state name along with the number of times it appears in the source data. Essentially, this means that ADF will internally sort the column containing state names and then apply a running count for each state until the name changes. Once a new state name appears, the counter resets and starts again.
+For example, when we apply this logic using the Aggregator Transformation in Azure Data Factory, the output will display two columns — state_name and count_of_state_name.
+
+For instance, Andhra Pradesh might appear 53 times in the source file.
+
+Similarly, another state might appear 118 times, and so on.
+
+Instead of repeating each state multiple times, the Aggregator Transformation outputs each unique state name once along with its count. In this way, we can identify unique state names from a flat file, which is a commonly used technique in data analytics projects when the source is a file rather than a database.
+To implement this in Azure Data Factory, we will now use the Aggregator Transformation. Currently, the data flowing from the previous transformation still contains duplicate state names, as we haven’t yet applied the aggregation logic. So, the next step is to add an Aggregator transformation to the data flow.
+You can find the Aggregator Transformation under the Schema Modifier category because it modifies the structure of the data by introducing new columns into the output. We’ll add the transformation and give it a logical name — for example, Aggregate_Count.
+Each transformation in ADF has specific configuration options, and it’s important to understand what each setting does.
+
+In the Select Transformation, we removed all unnecessary columns and retained only state_name.
+
+In the Aggregator Transformation, we’ll configure two key sections — Group By and Aggregate.
+
+In the Group By section, we’ll specify which column to group the data by. In our case, it’s the state_name column, as we want to aggregate records based on each distinct state name.
+Next, in the Aggregate section, we’ll create a new output column. We can name it count_state_name and then define its calculation logic. This is where we’ll use the Data Flow Expression Builder to define our expression.
+
+We’ve previously learned about the Pipeline Expression Builder while working with the Copy Data Activity in ADF pipelines. However, the Data Flow Expression Builder is slightly different — it is specifically designed to handle expressions and logic at the data transformation level within a Data Flow.
+In the next lesson, we will explore this Data Flow Expression Builder in detail and learn how to use it effectively to define our aggregation logic for counting unique state names.
+
+# **I) Dimension Table Load - DATAFLOW EXPRESSION BUILDER Overview**
+
+In this lecture, we have applied a group by column as the state name, based on which we need to identify how many times that particular state is appearing in the source file. Now, we are going to set the actual expression to count the state names. If you open the expression builder, you will notice that this is the Data Flow Expression Builder, which is entirely different from the Pipeline Expression Builder. It has a different interface, and again, you can create expressions here in the expression elements section. The functions also exist here, but they are a different set of functions compared to the pipeline expressions.
+
+If you click the Input Schema, it will display the column names coming from the source file. And if you click the Parameters tab, it will display the Data Flow parameters, not the pipeline parameters such as dataset parameters. The data flow itself also has parameters, and the last three options in the panel will be explored later. For now, we are primarily interested in finding the function to count the state name. It is better to use the search functionality so that the relevant function appears quickly. If you search for the count function, it will start to appear in the expression, similar to how it works in the Pipeline Expression Builder.
+
+Now, you need to choose the input column name. There is a provision here to select it from the input schema. However, since you are searching for the count function, you need to remove the search string; otherwise, the input schema won’t appear because all items are displayed in one output window. Based on that, you can choose accordingly. When you select “function,” it displays only the functions, and when you select “input schema,” it displays only the input schema. But since you are searching for the count function and that exact name does not exist in the input schema, it won’t display it. Therefore, you should keep searching and removing the search string as necessary; otherwise, you may get a little confused here.
+
+Now, we need to count the number of times each state name appears. By mistake, I removed one of the opening brackets, so be careful — these expressions are slightly different from the pipeline expressions we used earlier in the copy data activity. Once your expression is properly set, click Save and Finish. If you then look at the Inspect button, you will see there are now two columns. Initially, we had only one column because we deleted all of the source columns earlier. Now, there is one column coming from the source and one additional column that we created for the count of state names.
+
+The good thing about Data Preview is that it allows you to verify whether your logic is working correctly or not, right there in the editor itself. You can click Refresh, and it will apply your logic to produce and display the output of this transformation. As we can see, it has properly counted the number of times each state appears and brought out the unique state names. Comparing this with the data preview from the source, you can see that, for example, Uttar Pradesh was appearing multiple times in the source file, but the output of the Aggregator Transformation now displays it only once with the corresponding count. Everything is now working as expected.
+
+With that, we have completed the first transformation rule — identifying the unique state names. The next step is to allocate a unique ID for each of these unique state name values. However, before that, we need to remove the “count of state name” column because it will not be used in our sink table. We included it only because the Aggregate Transformation requires at least one aggregate function to work. The aggregator can be used for other purposes as well — for example, if you want to calculate the sum of quantities of arrivals for a specific product in a specific state, you can use the aggregate transformation to summarize all those values.
+
+So, the aggregate transformation can be used in multiple ways to summarize and group data, but in this case, we used it to identify the unique state names. Since we no longer need the “count of state name” column, we will exclude it. To do that, we use the Select Transformation once again. When you click on the select transformation, it displays the two column names. You can quickly delete the “count of state name” column because we no longer need it for loading into the target table. So, we are excluding that column.
+
+After excluding it, if you look at the Data Preview again, you will see only the state name column appearing. Similarly, in the Inspect tab, the other column is excluded, and everything still looks good to load into the target table. Our next transformation step will be to allocate a unique ID for each of the unique state name values that we have identified. We will derive that in the next lesson.
+
+# **J) Dimension Table Load - DATAFLOW SURROGATE KEY Transformation**
+
+Now the task is to allocate a unique ID for each of the state name values. For example, the first state name, starting with Uttar Pradesh, should be allocated the value 1, the next state name should get 2, the next should get 3, then 4, 5, and so on, continuing in that order until the last state name. That’s the requirement here.
+
+To achieve this, you need to understand the concept of transformations available within the data flow. Remember, we are not going to write any code manually here as we did in the pipelines. Instead, we simply configure the existing transformations available in the data flow. However, some transformations may have certain limitations, and in those cases, we need to find appropriate workarounds. One such case is when we need to create a surrogate key — in this context, the state ID.
+
+If you recall, while performing logical data modeling, one of the steps we followed was to add surrogate keys to all dimension tables. These IDs act as surrogate keys — unique identifiers for each record in a dimension table. In Data Flow, there is a built-in transformation available specifically for this purpose. It automatically generates unique ID values for every row that passes through the transformation. Hence, we are going to use this transformation, which is called the Surrogate Key Transformation, to generate our State ID values.
+
+So, we will configure the Surrogate Key Transformation and give it a suitable name like Generate State ID Value. There are some default configuration options and description fields available in the properties panel, but for now, we will skip those and focus only on the properties that are specific to our current transformation. We can always revisit and adjust the default settings later if necessary.
+
+The Surrogate Key Transformation will take the incoming stream from whichever previous transformation is connected to it — in our case, the output from the Select Transformation that carries the unique state names. Next, we need to specify the key column name. If you observe carefully, we do not have any existing column name in the dataset to map to the state ID column in our dimension state table, because this is a new value we are going to derive. Therefore, we can give the same name, state_id, so that it will be easier to map it to the final dimension table during the sink configuration.
+
+Now, we can specify the Start Value and Step Value for generating these surrogate keys. You can start the numbering from any value you prefer. Typically, we start from 1, so we’ll set the start value as 1. The Step Value determines the increment for each subsequent record. For example, if the step value is 10, the first record will have a key of 1, the next record will have 11 (1 + 10), and the next will have 21 (11 + 10), and so on. However, that’s not what we want here — we need each record to increment sequentially by 1. So, we’ll set the Step Value as 1.
+
+As you configure these properties, you can keep an eye on the Inspect Tab, which dynamically displays the columns being modified or added in each transformation. This helps you verify that your configuration is being applied correctly. Once you’ve set everything up, you can open the Data Preview to confirm that the surrogate key transformation is working as intended.
+
+When you refresh the data preview, you’ll see that it’s generating unique surrogate State ID values for each of the unique state names passing through. You can even count and verify — for example, if there are 23 states in the source file, you will see 23 unique state IDs generated, each corresponding to a unique state name. This confirms that the transformation is working perfectly.
+
+Now that the State ID values have been successfully created, the next step is to derive two additional columns — DW_Created_Date and DW_Updated_Date. These are straightforward to derive and will be implemented in the next lesson.
+
+# **K) Dimension Table Load - DATAFLOW DERIVED COLUMN and SINK Transformation**
+
+# **L) Dimension Table Load - Recap DATAFLOW Transformations & Debugging DATAFLOW**
+
+# **M) Dimension Table Load - Change Data Capture (CDC) Overview**
+
+# **N) Dimension Table Load - Change Data Capture Add Sink Data Into Source Stream**
+
+# **O) Dimension Table Load - Change Data Capture LOOKUP Transformation**
+
+# **P) Dimension Table Load - Change Data Capture FILTER Transformation**
+
+# **Q) Dimension Table Load - Change Data Capture SURROGATE KEY Limitation**
+
+# **R) Dimension Table Load - Change Data Capture Get Max SURROGATE KEY Using Query**
+
+# **S) Dimension Table Load - Merge Max SK with Source Using JOINER Transformation**
+
+# **T) Dimension Table Load - Merge Max SK JOINER Transformation Custom Join Condition**
+
