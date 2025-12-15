@@ -2031,6 +2031,31 @@ Now we have a fully generic second source. The next step will be creating anothe
 
 # **D) Reusable DATAFLOW Design - Dynamic SQL Query Import Projection**
 
+In the previous data flow, we simply mapped the second source into a specific table. From that table, the schema information was imported. After that, we included a select transformation to exclude additional columns. In this setup, the same source could not be used for loading multiple dimension tables.
+
+When generating the new data flow, we parameterized everything in the select statement and provided a general alias for the lookup column retrieved from the sync table. Regardless of whether it’s a dim_state or dim_market table, it always comes as lookup_target_column_value. This alias needs to be reflected in the projection because the projection happened when we ran the previous select statement on the dim_state table. Therefore, we need to reapply the import projection.
+
+Now, the system is asking for the values for the data flow parameters that we created. Previously, we had passed these values, but since we just created the data flow parameters, we need to provide the names based on the specific table we are working on. Eventually, these names will become generic. For example, the schema name is reporting and the table name is dim_state. This is also a good exercise to check if our alias is working properly.
+
+These values will replace the placeholders in the concatenated select statement and execute the output expression, which is basically the select statement. For example:
+
+SELECT state_name AS lookup_target_column_value 
+FROM reporting.dim_state
+
+That’s what will execute when we do the import projection. The alias name lookup_target_column_value will appear in the projection.
+
+The process initially failed, and we identified the reason. This is a good opportunity to remember: when passing string values to data flow parameters, you need to enclose them in single quotes. Without the quotes, the data flow expression builder will not accept them. Once the parameters are passed correctly, re-clicking import projection will work. The data set parameters pointing to a folder name worked fine without issues.
+
+After saving, the import projection works. The alias name given in the select statement now appears as a column name in the projection. This generic name allows the same data flow to be used for multiple dimension table loads. Previously, the projection pointed to state_name, but now it points to a generic dim lookup value.
+
+Next, we need to create a generic source to get the maximum surrogate ID value from the sink table. We can copy the existing source temporarily for this purpose because it is not pointing to any source table. Click “Add Source” and use the same data set that was used to get the maximum surrogate ID value.
+
+In the source options, click the query button and pass the query that selects the maximum state ID value from the dim_state table. We plan to dynamically change the select statement like we did before. The maximum state ID value comes from the reporting dim_state table. We already have parameters for the table name and schema name, but we need one more parameter at the data flow level to populate the state ID column name, as there is no existing parameter binding for this column.
+
+We will cancel the current attempt because it won’t allow validation. Instead, we’ll go back to data flow parameters, create one more parameter for the surrogate key value, and configure the dynamic SQL. This way, we can use the same data set without binding it to any table in the database. By using SQL queries dynamically, the data set can serve multiple purposes.
+
+Creating the new data flow parameter and configuring the dynamic SQL will be covered in the next lesson.
+
 # **E) Reusable DATAFLOW Design - Dynamic SQL Query For Max Surrogate Key Value**
 
 # **F) Reusable DATAFLOW Design - Configure SELECT , AGGREGATOR and LOOKUP**
