@@ -2058,20 +2058,792 @@ Creating the new data flow parameter and configuring the dynamic SQL will be cov
 
 # **E) Reusable DATAFLOW Design - Dynamic SQL Query For Max Surrogate Key Value**
 
+We start by generating a new data flow parameter whose purpose is to hold the key column name dynamically. This parameter allows us to reuse the same data flow for different dimension tables without hard-coding column names. We name this parameter DFL_PRM_ReportingTable_IDColumn. This parameter represents the ID column we are interested in for the current data flow.
+
+For this specific data flow, the value will be State ID, but for subsequent data flows, this value will change based on the dimension table being loaded. That is why we parameterize it instead of hardcoding it.
+
+Next, we come back to the existing query that we have used in the past and copy-paste it again. This time, instead of a static query, we will make it dynamic by using the concat function to generate the SQL statement dynamically.
+
+Before applying the concat function, we remove the closing bracket of the existing expression. The first part of the SQL query, starting from SELECT up to MAX(, remains unchanged. This portion of the query will always stay the same.
+
+The only part that needs to be dynamic is the State ID column. Instead of hardcoding StateID, we replace it with the data flow parameter DFL_PRM_ReportingTable_IDColumn. This parameter dynamically injects the key column name into the query.
+
+After the first string literal, we add a comma, then place the data flow parameter, followed by another comma. The remaining portion of the query—specifically the closing bracket of the MAX function and the alias—remains unchanged.
+
+Instead of using the alias MaximumStateID, we rename it to MaximumSurrogateKeyID. This naming is intentional so that the alias can be reused consistently across all dimension tables, regardless of the actual column name.
+
+The query remains unchanged up to the FROM clause.
+
+Next, we address the schema and table name. The schema name reporting is replaced with a schema name data flow parameter. After the schema name, we add a dot (.) inside quotes, followed by a comma.
+
+Finally, the table name DimState is replaced with the data flow parameter for the table name. Once all replacements are done, we apply the closing bracket of the concat function.
+
+At this stage, validation may still throw an error. This usually happens if a comma is missing in the concat arguments. Since concatenation works based on multiple values separated by commas, every component must be correctly separated.
+
+After verifying, we notice that one comma was missing. Once it is added, everything validates correctly. We then save and finish the step.
+
+Now, when we perform Import Projection again, the system prompts us to provide values for the data flow parameters:
+
+Schema name
+
+Table name
+
+ID (key) column name
+
+These values were already provided earlier, but we must enter the ID column name again, ensuring that it is passed inside quotes. This is important to avoid runtime errors.
+
+At this point, everything looks correct, but an error still appears related to the alias name. On closer inspection, we realize the issue is due to incorrect usage of the concat function. Instead of properly using concat, it was mistakenly nested or duplicated.
+
+After removing the extra concat function calls, we save and finish again.
+
+When we perform Import Projection once more, the data flow runs successfully. The output now correctly brings the alias column name defined in the SELECT statement, which is MaximumSurrogateKeyID.
+
+If we compare the existing Lab 4 data flow with the new data flow we are developing, the difference becomes very clear.
+In the older data flow:
+
+The second source column name is specific, such as LookupStateName
+
+The third source outputs MaximumStateID
+
+In the new data flow:
+
+The second source output column is DimLookupValue, which is completely generic
+
+The third source outputs MaximumSurrogateKeyID, which is also generic
+
+This shows that we are building a fully reusable data flow. It is no longer tied to a specific table or column. The same data flow can now be reused to load multiple dimension tables simply by changing parameter values.
+
+That is the core objective of this exercise—to design a generic, parameter-driven data flow.
+In the next lesson, we will continue building the subsequent sections of this reusable data flow.
+
 # **F) Reusable DATAFLOW Design - Configure SELECT , AGGREGATOR and LOOKUP**
+
+Now that we have defined the three required sources, we can start building the subsequent sections of the data flow.
+
+The first transformation we need to add after the source is by clicking the plus (+) button and selecting the Select transformation. This step is used to choose only the required column from the source and remove all unnecessary columns.
+
+In the current scenario, we are loading the Dim State table. From the source, we only need the State Name column. So, we select the State_Name column and remove all other columns by unchecking them.
+
+Once that is done, we rename the State_Name column to a generic column name. This is an important step to make the data flow reusable. Instead of keeping it specific to “State Name,” we rename it to:
+
+SourceFileDimColumn
+
+This represents the column from the source file that will be used in the dimension table. By doing this, the same data flow can be reused for other dimension tables without changing the internal logic.
+
+Next, we use an Aggregate transformation to identify distinct values from the source dimension column. Previously, we used the State Name column directly, but now, since everything is generalized, we use the renamed column SourceFileDimColumn.
+
+We add an Aggregate transformation and name it something like Find Unique Source Values. The source column used in the aggregation is SourceFileDimColumn. Although in this case it represents State Name, in future data flows it could represent something else, such as Market Name or Category Name.
+
+Inside the Aggregate settings, we specify the count of SourceFileDimColumn. To do this, we use the count() function and ensure that the column selected inside the count function is SourceFileDimColumn.
+
+Even though this column is technically pointing to State Name in the current flow, we consistently use the generic name. This reinforces the idea that the same data flow can be reused across multiple dimension tables without any internal modifications.
+
+At this stage, we keep the count column in the output. Any unnecessary columns can be removed later using another Select transformation if required.
+
+The next step is to look up existing records from the dimension table to determine which values already exist in the sink. For this, we add a Lookup transformation and name it generically, such as Lookup Dim Table.
+
+The aggregate output is connected as the main stream of the lookup transformation. The lookup stream is connected to the second source, which represents the existing dimension table (source dim lookup).
+
+In the lookup configuration, we define the matching condition as follows:
+
+From the source stream: SourceFileDimColumn
+
+From the lookup stream: DimLookupValue
+
+Effectively, this means we are comparing:
+
+State Name from the source file
+
+State Name from the existing dimension table
+
+Even though these are State Name columns in this data flow, we use generic names to maintain reusability.
+
+If the DimLookupValue coming from the lookup stream is NULL, it indicates that the corresponding source value does not exist in the sink table. These are the records that need to be inserted into the dimension table.
+
+Filtering out these NULL lookup values will be handled in the next lesson, where we will add a filter transformation to pass through only the records that do not already exist in the dimension table.
+
+At this point, we have successfully:
+
+Selected and generalized the source dimension column
+
+Identified distinct source values using aggregation
+
+Looked up existing dimension values to detect new records
+
+In the next lesson, we will continue by filtering the unmatched records and proceeding further in the data flow.
 
 # **G) Reusable DATAFLOW Design - Configure FILTER , JOINER and DERIVED COLUMN**
 
+Now, we include a Filter transformation to filter out only the new records coming from the source that do not already exist in the sink table.
+
+We add a Filter transformation and name it Filter New Source Values. In the filter expression, we specify the condition that the DimLookupValue is NULL. This condition was already identified earlier during the lookup step.
+
+To build the expression, we select the isNull() function, remove the default search string, and pass DimLookupValue into the function. If DimLookupValue is NULL, it indicates that the corresponding source record does not exist in the target dimension table. Only those records should pass through the filter, as they are the ones that need to be loaded into the sink.
+
+Next, we create a Join transformation to join these filtered records with the maximum surrogate key value coming from the sink table. The required SQL for fetching the maximum surrogate key was already generated earlier.
+
+We add a Join transformation and name it Join Max Surrogate Key. The main stream comes from the filtered source records, and the second stream comes from the source that provides the maximum surrogate key value (the third source defined earlier). We connect both streams accordingly.
+
+Since there is no common column between these two streams, we configure a custom join condition. The join condition ensures that both streams have valid data.
+
+The custom join expression is built as follows:
+
+NOT isNull(SourceFileDimColumn)
+
+AND (&&)
+
+NOT isNull(MaximumSurrogateKeyID)
+
+There is no direct notIsNull() function available, so we use the NOT operator along with the isNull() function. This ensures that only rows with valid source dimension values and a valid maximum surrogate key value are joined.
+
+Once the join condition is configured, we save and finish the transformation.
+
+At this stage, all transformations are correctly connected. Only the source values that do not exist in the target table will pass through the pipeline. These are the records for which new surrogate keys need to be generated.
+
+Before generating the final surrogate key values, we remove any unnecessary columns flowing through the pipeline. After the join, the only columns we actually need are:
+
+The source file dimension column
+
+The maximum surrogate key ID
+
+The count of source values and the DimLookupValue are no longer required at this point.
+
+Instead of adding multiple Select transformations at different stages, we add a single Select transformation just before mapping the data into the sink. We name this transformation Select and Map Dim Columns.
+
+In this step, we explicitly remove:
+
+Count of SourceFileDimColumn
+
+DimLookupValue
+
+We retain only the columns required to generate the final surrogate key and load the dimension table.
+
+Next, we add a Surrogate Key transformation to generate new surrogate IDs. The key column is named generically as KeyID (or SurrogateKeyID), rather than referring to a specific column such as StateID. This keeps the data flow completely reusable across multiple dimension tables.
+
+The surrogate key generated here represents the incremental ID for new records within this data flow execution.
+
+Now, we need to generate the final surrogate key value that will be loaded into the target table. This requires adding the newly generated surrogate key value to the existing maximum surrogate key value from the sink.
+
+To do this, we add a Derived Column transformation and name it Derive New Key and Audit Columns.
+
+In this transformation, we derive a new column called SurrogateKeyID. The expression used is:
+
+MaximumSurrogateKeyID + GeneratedSurrogateKeyID
+
+This ensures that the new records continue the surrogate key sequence from the existing maximum value in the target table.
+
+In the same Derived Column transformation, we also create the required audit columns:
+
+DW_Created_Date
+
+DW_Updated_Date
+
+Both of these columns are populated using the current date function available in the data flow. The current date value is assigned to both columns, ensuring consistent audit tracking for newly inserted records.
+
+At this point, we have:
+
+Filtered only new source records
+
+Joined them with the maximum existing surrogate key
+
+Generated new surrogate key values
+
+Derived final surrogate keys and audit columns
+
+The final step—mapping all these columns to the sink (dimension table)—will be covered in the next lesson.
+
 # **H) Reusable DATAFLOW Design - Configure SINK & Pipeline To Automate Run**
+
+Now, we create a Sink activity to map all the derived values into the final target dimension table. We name this sink activity Sync Dimension Tables, again using a generic name so it can be reused across different dimension loads.
+
+We have already created the dataset for the sink table, which in this case is DSA_SQL_Report_Dim_State. We select this dataset, and it resolves correctly.
+
+Next, we go to the Settings section of the sink. For now, we enable Allow Insert only. We are not truncating the table at this stage. The objective here is to insert only new records identified by the data flow.
+
+Then we move to the Mapping section to ensure all required columns from the data flow are correctly mapped to the sink table.
+
+At this point, we notice a small issue. In the previous version of the data flow, columns were automatically mapped because their names matched the sink table column names. However, in this reusable data flow, we have renamed columns to generic names, such as SourceFileDimColumn.
+
+Because of this:
+
+The dimension value (State Name) now comes from SourceFileDimColumn
+
+The dimension ID (State ID) comes from the newly generated SurrogateKeyID
+
+The remaining technical or intermediate columns are no longer needed and are not mapped
+
+After validating the mappings, everything looks correct.
+
+Now we publish the data flow. At this point, only the data flow definition is saved. Nothing is executed yet.
+
+Next, we need to build a Pipeline to execute this newly created data flow.
+
+We navigate to the Transform subfolder under the Ingest folder. To keep everything consistent and reusable, we create a new pipeline and give it a name without referencing Lab 4, so it can be reused in the future.
+
+Before proceeding, we close all unnecessary windows to keep the workspace clean.
+
+Inside the pipeline canvas, instead of manually adding a Data Flow activity, we directly drag and drop the data flow from the Transform folder. This automatically creates a Data Flow activity and links it to the correct data flow definition.
+
+Once added, the activity prompts us to provide values for:
+
+Dataset-level parameters
+
+Data flow-level parameters
+
+Dataset-level parameters appear under the Settings section of the activity.
+Data flow-level parameters appear under the Parameters section of the data flow activity.
+
+For now, we hardcode the parameter values for a quick test run. Later, these values can be fully automated using pipeline parameters.
+
+We provide:
+
+Landing folder name as daily-pricing
+
+File name by selecting an existing file from the landing container to ensure the pipeline runs successfully
+
+This process is similar to passing values to pipeline parameters, but data flow parameters behave slightly differently.
+
+When passing values to data flow parameters, we must be careful. In the Parameters section:
+
+Click on each parameter
+
+Choose Data Flow Expression (not Pipeline Expression)
+
+Pass string values inside quotes
+
+Data flow expressions work differently from pipeline expressions, and failing to use quotes will result in validation errors.
+
+We now pass the data flow parameter values as follows:
+
+Schema Name → "reporting"
+
+Table Name → "dim_state"
+
+Lookup Column Name → "state_name"
+
+Key ID Column Name → "state_id"
+
+After entering all parameter values, we save and finish the pipeline configuration.
+
+When we run the pipeline, it will load data into the SQL Server dimension table. In this case, it will populate the table with all 25 state records, generating surrogate keys dynamically.
+
+For testing purposes, we may choose to truncate the dimension table first and then run the pipeline again to verify that the data is loaded correctly.
+
+If the pipeline runs successfully, it confirms that:
+
+The reusable data flow logic is working
+
+Parameterization is functioning as expected
+
+Surrogate key generation and mapping are correct
+
+If any errors occur, that is also useful for learning and debugging.
+
+In the next lesson, we will:
+
+Monitor the pipeline run status
+
+Review execution logs
+
+Analyze any errors or warnings in detail
 
 # **I) Reusable DATAFLOW Design - Debugging**
 
+Sometimes, when you run the data flow, it may not respond for a longer time than expected. This usually happens because the Data Flow Debug cluster that was created earlier is no longer in a reachable or healthy state.
+
+In such cases, the best approach is to disable the Data Flow Debug option first. Once it is disabled, enable the Data Flow Debug again. This forces the system to recreate a new debug cluster instead of reusing the old one.
+
+After recreating the debug cluster, when you rerun the data flow, it typically executes much faster. This is exactly what we are doing here, because the previous run was taking too long to respond.
+
+Now, when we click the Debug button again, the data flow either runs successfully or throws an error. Ideally, seeing an error is also helpful, as it allows us to debug and identify the root cause of the issue.
+
+In this case, the data flow runs successfully again.
+
+Next, we go back to the SQL Server database and run a query on the dimension table. As expected, there are no duplicate records. Only 25 state names are present in the table, which confirms that:
+
+Duplicate filtering logic is working
+
+Lookup and filter conditions are correct
+
+Surrogate key generation is functioning as intended
+
+All the implemented logic is working perfectly.
+
+Now, to load the next dimension table, there is no need to build a new data flow from scratch. All we need to do is clone this existing data flow.
+
+Inside the data flow, the only change required is in the Select transformation, where we replace:
+
+State_Name with the specific dimension column name (for example, Market Name, Category Name, etc.)
+
+When calling the data flow from the pipeline, we simply update the data flow parameter values:
+
+Schema name
+
+Dimension table name
+
+Lookup column name
+
+ID (key) column name
+
+These parameter changes are the only modifications needed to load any other dimension table.
+
+This approach allows us to reuse the same data flow to load all remaining dimension tables with minimal effort.
+
+In the next lesson, we will:
+
+Create all required dimension tables in the database
+
+Run the same pipeline repeatedly with different parameter values
+
+Demonstrate the flexibility and reusability of this design across multiple dimension tables
+
 # **J) Reusable DATAFLOW Design -Produce Dimension and Fact Tables CREATE SQL Scripts**
+
+As part of a data engineer’s responsibilities, we also need to generate the CREATE TABLE scripts for all the dimension tables and fact tables.
+
+To make this process easier and more efficient, I have already added commas at the end of all column names in the column definition list. This small step helps us quickly reuse and modify the script for multiple tables without manually adjusting syntax every time.
+
+Next, we copy this column definition block into SQL Server Management Studio (SSMS). SSMS is another tool available for working with SQL Server databases, and it provides more advanced features compared to other interfaces, making it ideal for executing DDL scripts.
+
+We begin by writing the CREATE TABLE statement. I start with the CREATE TABLE keyword and add the opening bracket. Then, I update the table name accordingly.
+
+To maximize efficiency, I reuse the same column definition block for each dimension table. For every new dimension table:
+
+I paste the same column definition string
+
+Update the table name
+
+Remove the last comma at the end of the column list before executing the statement
+
+This approach allows us to quickly create all required tables with minimal effort.
+
+Once the CREATE TABLE statements are ready, we also generate the corresponding DROP TABLE statements. These are useful when we need to rerun the script or reset the environment.
+
+We copy the CREATE TABLE script and modify it to use the DROP TABLE IF EXISTS syntax. This ensures that the script can be executed safely without throwing errors if the table already exists.
+
+At this point, we realize that we missed one important detail—the schema name. We update all table references to include the reporting schema.
+
+After adding the schema name, all CREATE and DROP statements are complete.
+
+Now, we execute the entire script at once in SQL Server Management Studio. All commands execute successfully, and the tables are created without any errors.
+
+When we refresh the table list, we can see:
+
+Five dimension tables
+
+One fact table
+
+This confirms that all required tables have been created correctly.
+
+Finally, we save this script and make it available in the Resources section, so it can be reused to create tables in any reporting database.
+
+In the next lesson, we will move on to creating reusable data flows for the remaining dimension tables.
 
 # **K) Reusable DATAFLOW Design - Reusing to Populate DIM_MARKET Dimension Table**
 
+Now that we have created all the dimension tables and the fact table in the database, the next step is to create datasets for the remaining tables. This needs to be done before we start reusing the reusable data flow for loading other dimension tables.
+
+To make this faster, we can simply clone the existing dataset (for example, the one created for Dim State) and update only the table name and schema mapping.
+
+We start with Dim State and then move on to Dim Market.
+For Dim Market:
+
+Clone the Dim State dataset
+
+Update the table name to Dim_Market
+
+Go to the Schema tab
+
+Clear the existing schema
+
+Use Import Schema to fetch the correct column structure
+
+Publish the dataset
+
+Because each dimension table has a different column structure, importing the schema ensures the dataset is correctly aligned with the table definition.
+
+We repeat the same process for the remaining dimension tables:
+
+Dim Product
+
+Dim Variety
+
+For each table:
+
+Clone an existing dimension dataset
+
+Update the table name
+
+Clear the existing schema
+
+Import the new schema
+
+Publish the dataset
+
+All these dimension tables use the same source dataset for loading data, and the same SQL dataset structure, which is why our design is fully reusable.
+
+The Date dimension is a special case. It is usually loaded using a one-time upload or a specific logic. We will handle that separately later.
+
+For now, all remaining required dimension table datasets are created and ready.
+
+With the datasets in place, we can now reuse our data flow very easily. In just a few minutes, we can populate multiple dimension tables using the same logic.
+
+We start by cloning the Dim State data flow.
+
+After cloning:
+
+Rename the data flow to Dim Market
+
+Remove the “copy” suffix to keep the naming clean
+
+Inside this cloned data flow, the only change required is in the Select transformation after the first source:
+
+Replace State Name with Market Name
+
+All remaining transformations continue to work without any change.
+
+Next, we update the Sink transformation:
+
+Select the Dim Market dataset that we created earlier
+
+Go to the Mapping section
+
+Ensure that:
+
+SourceFileDimColumn maps to Market_Name
+
+The new surrogate key maps to Market_ID
+
+That is the only change required at the data flow level.
+
+Now, we add this new data flow to the main pipeline.
+
+We are not creating separate pipelines for each dimension table. That is why we named the pipeline Load Reporting Dim Tables.
+
+We drag the Dim Market data flow into the pipeline and connect it after the Dim State data flow.
+
+When we click the Dim Market data flow activity, it prompts us for the source dataset parameter values. We can simply copy these values from the first data flow.
+
+For now, we hardcode the file name, folder name, and container name so that we can quickly verify everything is working. Later, we will automate these values using pipeline parameters.
+
+Next, we configure the data flow parameters using the Data Flow Expression editor:
+
+Table Name → "dim_market"
+
+Lookup Column Name → "market_name"
+
+ID Column Name → "market_id"
+
+After providing these values, we save and finish the configuration.
+
+At this point, if we run the pipeline, it will:
+
+Load data into Dim State
+
+Load data into Dim Market
+
+Since we previously dropped and recreated all dimension tables, the Dim State table is currently empty. Therefore, both data flows will load data fresh into their respective tables.
+
+In the next lesson, we will:
+
+Run the pipeline with both data flows together
+
+Validate the data in Dim State and Dim Market tables
+
+Continue loading the remaining dimension tables using the same reusable approach
+
 # **L) Reusable DATAFLOW Design - Reusing to Populate DIM_PRODUCT Dimension Table**
+
+Let’s start debugging the pipeline so that it loads both dimension tables together.
+
+We continue using the existing debug cluster, which is already in a ready state. Since the cluster is available, the pipeline will run a little faster. The pipeline is configured to execute the two data flows one after another. Although it is possible to run them in parallel, we deliberately avoid that for now because the debug cluster is very small, and we do not want to overload it.
+
+With this setup, the pipeline will load data into both the Dim State and Dim Market tables sequentially.
+
+While the pipeline is running, we start preparing the next data flow for the Dim Product table. Once again, the required changes are minimal. In just a couple of minutes, the same reusable data flow can be adapted to load another dimension table.
+
+The only special consideration with the Product dimension is that it contains both:
+
+Product Name
+
+Product Group Name
+
+However, the Product Group Name does not play any role in the lookup or join logic. It has a one-to-one relationship with Product Name, so the existing logic remains valid. The Product Name continues to be mapped to the SourceFileDimColumn, which means the data flow logic still works without any structural changes.
+
+When configuring the Sink for the Product data flow, we select the Dim Product dataset.
+
+In the Mapping section, we notice that only four columns are mapped automatically. The Product Group Name needs to be mapped manually. To do this, we add a new fixed mapping, select the Product Group Name column from the source, and map it to the corresponding column in the sink.
+
+Because Product Group Name must flow through the transformations, we also need to include it in the Aggregate transformation. This ensures the data is grouped by:
+
+Product Name
+
+Product Group Name
+
+Without including Product Group Name in the group-by clause, it would not appear in downstream transformations.
+
+We also revisit the Select transformation. Previously, only two columns were selected, so Product Group Name was excluded. We update the Select transformation to include Product Group Name as well. Some changes are always expected when handling slightly different table structures, but these changes are minimal and well contained.
+
+After these updates, Product Group Name correctly flows through to the sink.
+
+At this point, we publish the updated data flow. This is also a good opportunity to debug and validate the logic.
+
+When we check the pipeline run status, we notice that the second data flow (Dim Market) has failed.
+
+We immediately inspect the error message. The error says:
+
+Invalid object name: reporting.dim_market_name
+
+This clearly indicates that the wrong table name was passed as a parameter. Instead of passing dim_market, the value passed was dim_market_name.
+
+This explains the failure.
+
+We correct the parameter value to:
+
+Table Name → dim_market
+
+After fixing this, we publish the changes and rerun the pipeline.
+
+Because the pipeline and data flows are designed to be idempotent, rerunning them does not cause any issues such as duplicate data or inconsistent state.
+
+This time, the pipeline runs successfully.
+
+Next, we validate the data in the database.
+
+We start with the Dim State table, and the data is populated correctly.
+
+Then we check the Dim Market table. To easily detect duplicates, we run a query with:
+
+ORDER BY Market_ID
+
+The data looks clean, with no duplicate surrogate keys.
+
+To verify the volume of data, we run a simple count query on the Dim Market table. The result shows that 1,664 market records have been loaded successfully, which aligns with expectations.
+
+At this stage, we have successfully loaded:
+
+Dim State
+
+Dim Market
+
+Prepared the logic for Dim Product
+
+The only remaining dimension table to load is Dim Variety.
+
+In the next lesson, we will:
+
+Clone the existing data flow for Dim Variety
+
+Add it to the same pipeline
+
+Run all data flows together
+
+Confirm that existing dimension tables remain unaffected while the new table is loaded successfully
 
 # **M) Reusable DATAFLOW Design - Reusing to Populate DIM_VARIETY Dimension Table**
 
+Let’s now clone the data flow for the final dimension table, which is Dim Variety, and start making the required changes.
+
+We clone the existing data flow and rename it appropriately. Inside the Select transformation, the only change required is to replace Market Name with Variety. No other logic needs to be modified.
+
+Next, we go to the Sink transformation and select the Dim Variety dataset, which we already created earlier.
+
+In the Mapping section:
+
+Map SourceFileDimColumn to the Variety column
+
+Map the New Surrogate Key ID to Variety_ID
+
+With this, the data flow for Dim Variety is complete.
+
+At this point, we have created data flows for all dimension tables except the Date dimension. The Date dimension is a special case and will be handled later using a one-time load.
+
+For now, we focus on completing and validating all other dimension tables.
+
+All of these data flows are independent and can run individually. If we do not connect them sequentially in the pipeline, they will run in parallel. This means that at any point in time, two data flows can execute together.
+
+However, to avoid overloading the debug cluster, we choose a balanced approach:
+
+Run two data flows in parallel
+
+Then run the next two
+
+This allows us to observe performance before running everything end to end.
+
+When we try to publish, we encounter an error. This happens because, for the newly added data flows, the Settings and Parameters have not yet been populated.
+
+For the Settings section:
+
+We copy the values from an existing data flow
+
+The only tricky part is the file name
+
+The remaining values (container name and folder name) are already known:
+
+Container: landing
+
+Folder: daily-pricing
+
+We repeat this for the other data flow as well.
+
+Next, we move to the Data Flow Parameters section.
+
+For the Dim Variety data flow, we pass the following values using the Data Flow Expression editor:
+
+Schema Name → "reporting"
+
+Table Name → "dim_variety"
+
+Lookup Column Name → "variety"
+(Note: the column name is variety, not variety_name, because that is how it exists in both the source file and the database)
+
+ID Column Name → "variety_id"
+
+After passing these values, we save and finish.
+
+Next, we configure the remaining data flow. At first, there is some confusion with the table name, as Dim Market was accidentally reused. We correct this and switch to the Dim Product data flow instead.
+
+For the Dim Product data flow, we encounter a validation issue. When this happens, we use the Validate option and then click Publish All.
+
+After publishing, the Dim Product data flow appears correctly.
+
+Now we provide the required values for the Dim Product data flow:
+
+Settings:
+
+Container: landing
+
+Folder: daily-pricing
+
+Source file name: existing pricing file
+
+Parameters:
+
+Schema Name → "reporting"
+
+Table Name → "dim_product"
+
+Lookup Column Name → "product_name"
+
+ID Column Name → "product_id"
+
+At this point, all required values are passed correctly for:
+
+Dim State
+
+Dim Market
+
+Dim Product
+
+Dim Variety
+
+We publish everything again, and this time it works without any errors.
+
+Now the pipeline is fully configured to load all four dimension tables using the same reusable logic.
+
+In the next lesson, we will:
+
+Run the pipeline end to end
+
+Validate all four dimension tables
+
+Confirm that the reusable design works exactly as expected across all dimensions
+
 # **N) Reusable DATAFLOW Design - Debugging Run Of Loading All Dimension Tables**
+
+Let us now start the pipeline.
+
+You can see that two data flows start running in parallel. Once these two complete, the remaining two data flows will automatically start. We will wait until the entire pipeline run is completed.
+
+All the data flows have run successfully. Now let’s validate that the data has been populated correctly into all dimension tables, and also ensure that none of the existing data was affected.
+
+Dim State Validation
+
+We start with Dim State.
+
+The state count is always expected to be 25, and there are no additional records.
+This looks good.
+
+Dim Market Validation
+
+Previously, the Dim Market table had 1,664 records.
+After this run, the count remains the same, which confirms that no duplicates were introduced.
+
+Everything looks correct here.
+
+Dim Product Validation
+
+Next, we validate Dim Product.
+
+We run:
+
+SELECT * 
+FROM reporting.dim_product
+ORDER BY product_id;
+
+
+This makes it easier to check for duplicates.
+
+The results look good—there are no duplicate records.
+A quick count confirms that 215 products are present in the table.
+
+Dim Variety Validation
+
+Finally, we validate Dim Variety.
+
+We run:
+
+SELECT * 
+FROM reporting.dim_variety
+ORDER BY variety_id;
+
+
+The data looks clean, and a quick count confirms that all expected records are loaded successfully.
+
+Dim Date Load
+
+I have also loaded the Dim Date table.
+
+This is a one-time default load, so there is nothing complex involved. I will provide the insert script for this table separately.
+
+For Dim Date:
+
+We generated Date_ID values for the entire year 2023
+
+The Date_ID is created using a YYYYMMDD-style concatenation
+
+This is sufficient for our daily pricing data
+
+Key Observation – Manual Parameters
+
+If you closely look at the pipeline we are running, you will notice that there is still manual intervention required when passing:
+
+Landing container name
+
+Folder name
+
+Source file name
+
+The file name is especially important.
+
+In a real production scenario:
+
+There can be multiple files per day
+
+Over a year, we could easily have 365+ files
+
+Manually updating the file name is not scalable
+
+What’s Next
+
+To address this, we need to automate the file discovery and parameter passing process.
+
+Before implementing this change in the main pipeline, we will:
+
+Perform experiments in a working lab
+
+Validate different automation approaches
+
+Then integrate the best solution into our pipeline
+
+That’s what we will start working on next.
