@@ -215,6 +215,42 @@ This Repository contains my Notes of "Azure Data Factory - Data Engineering With
 
 **N) Reusable DATAFLOW Design - Debugging Run Of Loading All Dimension Tables**
 
+**IX) Incremental Load ( Delta Records Processing ) - Dimension Tables Load**
+
+**A) Incremental Load Overview**
+
+**B) Incremental Load - GET METADATA Activity Overview**
+
+**C) Incremental Load - GET METADATA Activity Filter Metadata Between Dates**
+
+**D) Incremental Load - IF CONDITION Activity Overview**
+
+**E) Incremental Load - IF CONDITION Activity For EXCEPTION Handling**
+
+**F) Incremental Load - ADF Single Pipeline Limitations & Workaround(Multi Pipeline)**
+
+**G) Incremental Load - Calling and Passing Values Between Parameters**
+
+**H) Incremental Load - Designing Reporting Tables Load Master Pipeline**
+
+**I) Incremental Load - Calling Reporting Dimension Load From Master Pipeline**
+
+**J) Incremental Load - Using Master Pipeline GET METADATA output in Child Pipeline**
+
+**K) Incremental Load - Debugging Dimension Tables Load Part 1**
+
+**L) Incremental Load - Debugging Dimension Tables Load Part 2**
+
+**M) Incremental Load - Configure Tumbling Window Trigger**
+
+**N) Incremental Load - Test Tumbling Window Trigger Run**
+
+**O) Incremental Load - Fixing Data Quality Error on DIM_VARIETY Table Load**
+
+**P) Loading DIM_DATE Dimension Table - Using INSERT STATEMENTS**
+
+**Q) Data Ingestion Pipeline - HTTP Source Full Load Using Tumbling Window Trigger**
+
 
 
 
@@ -2847,3 +2883,281 @@ Validate different automation approaches
 Then integrate the best solution into our pipeline
 
 That’s what we will start working on next.
+
+# **IX) Incremental Load ( Delta Records Processing ) - Dimension Tables Load**
+
+# **A) Incremental Load Overview**
+
+One of the configurations we have currently implemented while calling the data flows is passing values to the source dataset parameters by hardcoding them inside the pipeline. While this approach works from a functional standpoint, it is not considered a best practice in real-time or production-grade projects.
+
+Passing parameters to a data flow itself is acceptable, even if those parameters are hardcoded. This is because data flows are often highly specific in nature. In our case, this particular data flow is designed to work only for the Dim State table, so there is no immediate need to parameterize the entire data flow logic. From that perspective, keeping the data flow static is fine.
+
+However, the problem lies in hardcoding the values passed to the source dataset parameters. This approach makes the solution non-automated and rigid. In a real-time project, such configurations should be dynamic and driven by metadata or runtime values rather than fixed inputs.
+
+At the moment, the solution is also not automated with respect to incremental loads for the dimension table. This is a key gap we need to address. Currently, there isn’t just a single file present—there are nine files already available. If we schedule the ingestion pipeline again to load additional data, the existing metadata-driven ingestion pipeline will automatically bring the new files into the landing layer.
+
+For example, earlier we configured the pipeline trigger to run on the 10th of 2023. If we now edit the trigger and change it to the 20th of 2023, the pipeline will ingest only the additional files generated during that period. This behavior confirms that the ingestion layer is already capable of handling incremental data arrival.
+
+The challenge now is to extend this automation to the dimension table load, specifically by dynamically passing values to the source dataset parameters. We need a mechanism that can automatically identify and process only the incremental data without manual intervention.
+
+To achieve this, we will temporarily switch to the working labs, particularly Lab 5, where we will explore techniques to automate parameter passing for source datasets. Once we understand and validate that approach, we will come back and enhance the main pipeline to make it fully automated and production-ready.
+
+This end-to-end enhancement will ensure that the dimension table supports true incremental loading, aligns with real-world project standards, and eliminates the dependency on hardcoded configurations.
+
+# **B) Incremental Load - GET METADATA Activity Overview**
+
+The requirement here is to process all files that exist under the landing container, specifically inside the daily pricing folder, on a daily basis. These files need to be passed into the dimension table data flow that we have already developed. It is important to note that both the landing container and the daily pricing folder structure are fixed and will not change throughout the project.
+
+To achieve this, the first step is to list all the files available inside this folder and then pass that list dynamically into the data flow responsible for loading the dimension table. Once this mechanism is in place, the dimension load will work seamlessly without requiring any hardcoded values.
+
+Before applying these changes to the final, mainstream pipeline, we will perform a quick experiment under the Working Labs folder. This allows us to validate the logic independently and avoid impacting the production-ready pipeline. For this purpose, we will create a new pipeline, which we will name Lab4A. The goal of this lab pipeline is to explore how we can retrieve a list of files from a specific folder.
+
+To list files from a folder in Azure Data Factory, we use an activity called Get Metadata. In this lab, we will explore the different components available within the Get Metadata activity and use them to fetch the list of files stored in a folder inside a Data Lake Storage account.
+
+Once we add the Get Metadata activity, most of its configuration can be left at the default settings. The key configuration happens in the Settings tab, where it asks for a dataset. Here, we need to create a dataset that points only to the folder, not to any specific file.
+
+I have already created a dataset named Lab4_Source_File_List. This dataset is configured using Azure Data Lake Storage Gen2 as the storage type and Delimited Text as the format. In the file path, only the folder names—landing/daily_pricing—are specified. No file name is provided. This is a critical point because we want to retrieve metadata for all files inside the folder, not for a single file.
+
+Once the dataset is ready, we return to the pipeline and map this dataset to the Get Metadata activity. After selecting the dataset, we move to the Field List section. Metadata, by definition, is data about data, and in our case, file-related information such as file name, type, and last modified time qualifies as metadata.
+
+The Get Metadata activity can return several attributes, including child items, item name, item type, and last modified time. For our requirement, Child Items is the most relevant option because it returns an array containing all the files present in the folder. We select this option and run a debug execution of the pipeline.
+
+The pipeline runs very quickly, and when we inspect the output, we can see that the Child Items array lists all files present in the folder. In this case, it correctly identifies nine files, which matches the number of files currently available in the daily pricing folder.
+
+Now comes an additional and very important requirement. On a daily basis, these files may get updated or new files may arrive. During the first run, it is expected that all nine files are picked up. However, during subsequent runs, the pipeline should skip the files that were already processed and only pick up the newly added or updated files.
+
+To implement this behavior, we will leverage the Last Modified Time of the files. The Get Metadata activity provides an option to filter files by last modified date. This filter requires two parameters: Start Time and End Time, both of which must be provided in UTC (Universal Time) format.
+
+Using this filter, the pipeline will pick up only those files whose last modified timestamp falls between the given start and end times. This approach ensures that only incremental files are processed in each run.
+
+We have already used this UTC date-time format earlier in the ingestion pipeline. For testing purposes, we can copy the same format and pass sample date values to validate the behavior. In the next lesson, we will test this setup by providing specific date ranges and confirming that only the expected files are picked up.
+
+This experiment in the Working Labs will help us confidently apply the same logic to the final pipeline, enabling a fully automated, incremental dimension table load without hardcoded parameters.
+
+# **C) Incremental Load - GET METADATA Activity Filter Metadata Between Dates**
+
+To make this solution fully reusable and production-ready, we are going to pass the filter-by-last-modified start time and end time as pipeline parameters. This allows us to reuse the same pipeline logic across multiple runs and dynamically replace the parameter values at runtime. Just like we did in the ingestion pipeline, these parameter values can later be populated directly from the trigger output.
+
+For this purpose, we will create two pipeline parameters: one for the start date and another for the end date. Initially, we will assign default values to these parameters so that we can quickly test whether the filtering logic works as expected. The goal is to verify that the Get Metadata activity correctly filters source files based on the date range we pass.
+
+To identify appropriate test values, we navigate to the Data Lake Storage account, go to the landing container, and then open the daily pricing folder. From the file properties, we observe that the earliest file has a last modified time of 31st January 2024 at 12:05:03, and the latest one is around 12:27:14. Using these timestamps, we can design our test cases.
+
+We will use the UTC (Universal Date Time) format, which we have already used in the ingestion pipeline. Instead of retyping it, we simply copy the format from the ingestion pipeline and use it here. For the start date, we intentionally choose a time slightly earlier so that the first file is included. For example, we might use 12:05:00 as the start time and 12:05:30 as the end time. This should ideally pick up only two files that fall within that time window.
+
+Once the parameters are created, we need to map them to the Filter by Last Modified option in the Get Metadata activity. This is done using Dynamic Content, where the Pipeline Expression Builder opens. We bind the start time field to the start date parameter and the end time field to the end date parameter. At runtime, the pipeline will automatically take the values passed to these parameters.
+
+Since we have provided default values, we can simply debug the pipeline without manually supplying parameter values. During the first debug run, we intentionally use the same date values we configured earlier. After the pipeline runs successfully, we inspect the output of the Get Metadata activity and confirm that only the first and second of January files were picked up. This confirms that the filtering logic is working exactly as expected.
+
+Encouraged by this result, we perform one more test by slightly adjusting the date range. This time, we move the start time forward and extend the end time so that three files should fall within the range. Instead of modifying the pipeline logic itself, we simply change the parameter values at runtime. This highlights the true power of pipeline parameterization—we do not need to edit or redeploy the pipeline to change behavior.
+
+Initially, the pipeline fails due to an invalid datetime value. On closer inspection, we realize that we mistakenly passed 60 seconds in the timestamp, which is not valid. As soon as seconds reach 60, they roll over to the next minute. This is a simple human error, especially when things start working and excitement kicks in. After correcting the timestamp to a valid value, we rerun the pipeline.
+
+This time, the pipeline executes successfully. When we check the output, we can clearly see that only the third, fourth, and fifth files—the ones that fall within the specified date range—are picked up. This confirms that Microsoft’s implementation is solid and that our configuration is correct.
+
+At this point, the solution looks very promising. However, there is still one important edge case we need to handle. If a specific date range does not contain any files, the pipeline should not fail. Instead, it should gracefully handle this scenario. We will address this exception-handling logic in the next lesson.
+
+Once that is complete, we will return to the main pipeline and integrate everything we have built here. At that point, we will have a complete, automated, incremental mechanism to dynamically identify source files and drive the dimension table data flow without any hardcoded values.
+
+# **D) Incremental Load - IF CONDITION Activity Overview**
+
+Now we will test another scenario by passing a date range that does not fall within the last modified timestamps of any files. For example, we pass a start time of 01:28:00 AM and an end time such as 02:08:00 AM, and then adjust the end time further to 02:29:30 AM. Since none of the files in the daily pricing folder were modified during this time window, the Get Metadata activity should not find any matching files.
+
+As expected, when we run the pipeline with this date range, the Child Items output comes back as an empty array. If we expand the output, we can clearly see that no file names are returned. This confirms that the filtering logic is behaving correctly, but it also introduces an important scenario that we must handle.
+
+In a real-world pipeline, when the Child Items array is empty, we should not perform any further processing. Specifically, we should not trigger the dimension table data flow when there are no files to process. On the other hand, if the array is not empty and contains one or more file names, then we need to proceed with processing.
+
+Since the output is an array, and it can contain multiple file names, we will eventually use a ForEach loop to iterate through each file and pass it into the dimension table data flow. This is something we have already implemented earlier in the ingestion pipeline, so we are familiar with this pattern. However, before doing that, we must first check whether the array is empty or not.
+
+To achieve this, we introduce an additional activity called the If Condition activity. This activity will be placed immediately after the Get Metadata activity. Its purpose is to evaluate the output of Get Metadata and decide whether the pipeline should continue processing or simply exit gracefully.
+
+The specific output we are interested in from the Get Metadata activity is the Child Items array. This array represents the list of files present under the daily pricing folder for the given date range. Inside the If Condition activity, we need to pass this Child Items output as the input expression.
+
+When we open the If Condition activity and click on Add Dynamic Content, we can see multiple outputs available from the Get Metadata activity. Among them, we select Child Items, as that is the property we want to evaluate. This value is passed as the input to the condition expression.
+
+Now we need to check whether this array is empty or not. Azure Data Factory provides a very useful built-in function called empty(). This function returns true if the input object, array, or string is empty, and false otherwise. Since Child Items is an array, this function works perfectly for our requirement.
+
+So, inside the expression builder, we use the empty() function and pass the Child Items array as the argument. If the function returns true, it means no files were found, and we do not need to perform any further actions. If it returns false, it means files are available, and we should proceed with processing them.
+
+In our case, the false path is where the actual work will happen. That is where we will later add the ForEach loop and trigger the dimension table data flow. The true path can simply end the pipeline execution without doing anything.
+
+For now, to validate that the logic is working correctly, we will configure temporary variables in both the true and false paths. This will help us confirm whether the pipeline is correctly identifying empty and non-empty scenarios during execution.
+
+Once we validate this behavior in the Working Labs, we will return to the main pipeline and implement this logic as part of the automated, incremental dimension table load. In the next lesson, we will test these conditions in detail and finalize the implementation.
+
+# **E) Incremental Load - IF CONDITION Activity For EXCEPTION Handling**
+
+To verify whether the pipeline execution is going through the true or false path of the If Condition activity, we will use a simple validation approach by setting a variable. This helps us clearly understand whether the condition logic is working as expected during runtime.
+
+When we click the Edit button on the If Condition activity, it opens a sub-window, similar to how the ForEach loop works. From this sub-window, we can configure the activities for both the True and False branches. At any point, we can return to the main pipeline by clicking the breadcrumb navigation, and similarly, we can revisit the If Condition sub-window by clicking the Edit button again.
+
+Inside the True branch, we add a Set Variable activity. Since we have already used this activity earlier, it should be familiar. Here, we quickly create a pipeline variable named condition_output with the data type set to String. If the condition evaluates to true—meaning the Child Items array is empty—we set this variable’s value to "true". This confirms that no files were found for the given date range.
+
+Similarly, inside the False branch, we add another Set Variable activity. We use the same variable, condition_output, but this time we set its value to "false". This indicates that the Child Items array is not empty and that files are available for processing.
+
+Once both branches are configured, we rerun the pipeline to test the behavior. For this test, we intentionally pass a date range outside the last modified timestamps of all files—for example, a start time of 02:08:00 AM and an end time of 02:29:30 AM. Since no files fall within this range, the Get Metadata activity returns an empty Child Items array.
+
+This output is then passed to the If Condition activity. As expected, the condition evaluates to true, and the pipeline executes the True branch. The variable condition_output is set to "true", confirming that the logic is functioning correctly.
+
+This validation is important because, in our actual implementation, the False branch is where meaningful processing will occur. Only when files are available should we trigger the ForEach loop and run the dimension table data flow. If the array is empty and we skip this check, the pipeline would attempt to process non-existent files and fail with a source file not found error.
+
+By introducing this conditional check, we are proactively handling the error before it occurs. This makes the pipeline more robust, reliable, and production-ready. With this validation in place, we can confidently move back to the main pipeline and integrate this logic into the incremental dimension table load process.
+
+# **F) Incremental Load - ADF Single Pipeline Limitations & Workaround(Multi Pipeline)**
+
+Once we have validated that the If Condition activity is working correctly, the next step is to process the files returned by the Get Metadata activity. For this, we need to use the ForEach activity. Since the Get Metadata activity outputs an array of files, the ForEach loop allows us to traverse this array one file at a time, passing each file individually into the dimension table data flow.
+
+To demonstrate this, we first run the pipeline with a valid start date and end date that matches the last modified timestamps of actual files. Using our default test values, the Get Metadata activity returns two files, confirming that the Child Items array is not empty. Consequently, the pipeline follows the False branch of the If Condition, and the condition_output variable is set to "false". This is exactly the scenario we want, because files are available for processing.
+
+Now, within the False branch, we need to call the ForEach activity to iterate over the array. It is important to note that we cannot directly pass the entire array to the data flow parameters in a single operation; each file must be processed individually. The ForEach activity allows this sequential or parallel processing.
+
+However, Azure Data Factory has a limitation that we must be aware of: we cannot nest a ForEach activity directly inside an If Condition if that If Condition is in the same pipeline. Similarly, nested If Condition activities are disabled by default. This means that we cannot directly create a ForEach loop inside the False branch of an If Condition within the same pipeline.
+
+To overcome this limitation, the recommended approach is to create an additional pipeline. The parent pipeline handles the Get Metadata and If Condition logic, and when files are available, it passes the file list as pipeline parameters to the child pipeline. The child pipeline can then safely iterate over the files using a ForEach activity and trigger the dimension table data flow for each file.
+
+In the next lesson, we will implement this solution in detail, creating the child pipeline and passing the necessary parameters from the parent pipeline. This approach ensures that we handle multiple files efficiently while respecting the limitations of Azure Data Factory. For now, it is important to understand this design pattern as a standard way to process arrays conditionally in a modular and reusable manner.
+
+# **G) Incremental Load - Calling and Passing Values Between Parameters**
+
+During the testing process, we realized that some temporary variables, like source file name, were accidentally created and appeared as duplicates. Since these set variables were only used for testing the passing of values between pipelines, we deleted them to keep the pipeline clean. No set variable activities are needed in the main or new pipelines for the production workflow. Once the unnecessary variables were removed, we successfully published the pipeline changes.
+
+The main pipeline now begins by reading the list of files in the landing folder. The Get Metadata activity retrieves the Child Items array, which contains the file names. If the array is empty, we do not perform any further actions. If it contains files, we would ideally process each file individually. However, due to Azure Data Factory limitations, we cannot directly use a ForEach activity inside an If Condition in the same pipeline.
+
+To overcome this limitation, we created a sub-pipeline. The main pipeline passes the Child Items array as a pipeline parameter to this sub-pipeline. The sub-pipeline then iterates over each file using a ForEach activity, allowing the dimension table data flow to process each file individually. During testing, we confirmed that this approach works as expected: with two files in the landing folder, the If Condition evaluates to False, the main pipeline calls the sub-pipeline, and the ForEach activity in the sub-pipeline runs two iterations, processing each file separately.
+
+This setup demonstrates a fully automated workflow:
+
+Automatic identification of files in a folder using Get Metadata.
+
+Conditional execution using the If Condition activity to handle empty or non-empty arrays.
+
+Error handling, avoiding failures when no files are available.
+
+Passing values between pipelines via pipeline parameters to work around ADF limitations with nested loops.
+
+Iterative processing in the sub-pipeline using ForEach to call the dimension table data flow for each file.
+
+In practice, this means the master pipeline reads the files from the landing folder, checks if any files exist, and passes them to the sub-pipeline. The sub-pipeline then uses a ForEach loop to run the data flows for the dimension table load. Only the file names change for each run; the container name and folder name remain constant.
+
+This modular, multi-pipeline approach is crucial for real-time, production-ready ETL workflows, where multiple files must be processed dynamically. By splitting responsibilities across pipelines and using parameters, we can handle complex scenarios efficiently while keeping the design clean, reusable, and error-resilient. In the next lesson, we will implement this fully with the reporting dimension table load, completing the end-to-end incremental load process.
+
+# **H) Incremental Load - Designing Reporting Tables Load Master Pipeline**
+
+We will start by using the Fourier pipeline as a reference to create a new, master pipeline for the reporting table load. Initially, the goal was to run the dimension table load directly. However, during the development of the Fourier pipeline, we discovered a limitation in Azure Data Factory: we cannot directly implement a ForEach activity inside an If Condition. To handle this, we will create a parent (master) pipeline that will call the reporting dimension table load pipeline. All additional logic and checks will be implemented in this master pipeline.
+
+To speed up development, we clone the data set we previously created, instead of creating it from scratch. We remove any lab-specific suffixes, so it can be used directly in the new master pipeline. After publishing these changes, we move the dataset from the Working Labs folder into the Transform folder, aligning it with our production structure.
+
+The new pipeline is created and named RPL_Load_Reporting_Tables, which is designed to handle both dimension and fact table loads, since the same source files feed both types of tables. The first activity in this pipeline is the Get Metadata activity to list files in the landing folder. We ensure proper naming conventions and configure it to refer to the source file list dataset we cloned.
+
+Next, we create pipeline parameters for start date and end date. These parameters allow us to filter files on a daily basis based on their last modified timestamp. We reuse the logic from the ingestion pipeline, which automatically passes trigger values to the pipeline parameters at runtime. The dynamic content for start date and end date is mapped to these parameters, enabling filtering without hardcoding values.
+
+The Get Metadata activity now lists files from the landing container that fall within the specified date range. The output is captured in the Child Items array, which contains all file names that match the filter. If no files are found for the given date range, the array will be empty. To handle this scenario, we add an If Condition activity immediately after the Get Metadata activity. This condition evaluates whether the Child Items array is empty, preventing unnecessary failures or errors.
+
+Inside the If Condition, we use the empty() function, which returns true if an array, object, or string has no values, and false if it contains data. We pass the Child Items array from the Get Metadata activity as input to this function. If the array is empty (true), the pipeline does nothing. If the array contains files (false), we proceed to the next step: calling another pipeline to process these files.
+
+In the False branch of the If Condition, we add an Execute Pipeline activity to call the existing dimension table load pipeline. We pass the Child Items array as a pipeline parameter to this called pipeline, enabling it to iterate over the files and process them one by one. This modular approach ensures that each file is handled individually while respecting ADF’s limitations with nested loops.
+
+In the next lesson, we will configure this Execute Pipeline activity in detail and complete the implementation for loading the reporting tables. By separating the master pipeline from the dimension table pipeline, we achieve a flexible, reusable, and production-ready workflow, capable of handling multiple files, dynamic dates, and incremental loads efficiently.
+
+# **I) Incremental Load - Calling Reporting Dimension Load From Master Pipeline**
+
+Inside the False branch of the If Condition activity, we add an Execute Pipeline activity to call the dimension table load pipeline. This step is necessary because we only want to process files when the Child Items array from the Get Metadata activity is not empty. To make it clear which pipeline is being invoked, we set the description of the Execute Pipeline activity to indicate that this is the actual pipeline being called. This helps avoid confusion when reviewing the pipeline later.
+
+Before passing values to the invoked pipeline, we need to ensure that the called pipeline has the necessary pipeline parameter. In the dimension table load pipeline, we create a new parameter called pipeline_parameter_source_files_list and set its data type to array, as it will hold the list of files coming from the parent pipeline. Once the parameter is created, we publish the pipeline to make the parameter available.
+
+Back in the master pipeline, we map the Child Items array from the Get Metadata activity to this newly created pipeline parameter using dynamic content. This ensures that the array of files retrieved from the landing folder is passed to the dimension table load pipeline. Opening the dimension table load pipeline confirms that the array is received correctly, containing all files to be processed.
+
+To process each file individually, we use a ForEach activity inside the dimension table load pipeline. The input to the ForEach activity is the pipeline parameter containing the array of file names. Each iteration of the loop will process a single file. This allows us to map the individual file names to the parameters of the data flows that load the dimension tables.
+
+At this stage, we organize the pipeline by moving all existing data flow activities inside the ForEach loop. This ensures that each file in the array is processed sequentially (or in parallel if configured), and the file-specific parameters are passed correctly to the data flows. In the next lesson, we will focus on mapping the ForEach iteration output to the data flow parameters, completing the incremental load process for the dimension tables.
+
+# **J) Incremental Load - Using Master Pipeline GET METADATA output in Child Pipeline**
+
+We have now included a ForEach activity in the dimension table load pipeline to iterate over the array of file names coming from the master pipeline, which in turn is the output of the Get Metadata activity. The pipeline parameter holding this array is mapped as the input to the ForEach activity, allowing it to process multiple files dynamically. In the settings of the ForEach activity, we specify the items property to use this pipeline parameter, which ensures that all array values—whether coming from metadata or another pipeline—are processed sequentially.
+
+Inside the ForEach loop, we place all the data flow activities responsible for loading the dimension tables. When copying these activities into the ForEach loop, the connectivity between them needs to be re-established, which is straightforward. For each data flow, the landing container name and folder name are constant, so we create pipeline parameters for them to avoid hardcoding. The landing file name, however, comes dynamically from the current iteration of the ForEach loop, accessed via item.name in the dynamic content. This ensures that each file in the array is processed individually.
+
+By parameterizing the container name, folder name, and source file name, we remove hardcoded values from the data flows, making the pipeline flexible and reusable. These parameters are mapped to the respective fields in each data flow. If any of these values change in the future, we only need to update the pipeline parameters rather than editing each data flow. This is a best practice for building scalable, maintainable ETL pipelines in Azure Data Factory.
+
+Once all mappings are complete, we publish the changes and prepare for testing. Before executing the pipeline, only the pipelines currently being worked on are kept open to avoid confusion. During debug, the pipeline prompts for the start and end date parameters, which are used to filter files in the Get Metadata activity. The filtered list of files is then passed to the master pipeline, which invokes the dimension table load pipeline. The ForEach activity iterates through this list, and the data flows process each file individually.
+
+This approach effectively handles dynamic, incremental file processing while respecting ADF’s limitations with nested loops and hardcoding. The next lesson will focus on testing the end-to-end flow and verifying that files are processed correctly through all layers of the pipeline.
+
+# **K) Incremental Load - Debugging Dimension Tables Load Part 1**
+
+I would like to start the testing with reading these two files. So I’m setting the start date and end date based on these two time values. When you click Debug, it will ask whether to use the Integration Runtime, and it will ask for the values for the start date. I am passing my start date value as 0120500, so it will pick up the first file, and the ending value as 2530 so it will pick up the second file. These two files will then be passed to the Reporting Dim Table Load pipeline, and the execution will kick off. We will be able to monitor how the run progresses and debug any errors that may occur.
+
+The Get Metadata activity runs first and identifies the childItems, which includes the two source files. This is expected. Next, the If Condition activity evaluates whether the array of files is empty or not. Since the array is not empty, it evaluates to False and triggers the Execute Pipeline activity, calling the pipeline responsible for loading the dim reporting tables. If you want to see the run for this pipeline, you need to open it in a different window via the pipeline run ID link, as it runs separately from the master pipeline.
+
+Inside the ForEach activity, the pipeline is processing the two files simultaneously. By default, the ForEach activity runs in parallel if the sequential setting is not enabled, which is why both files are being executed together. If sequential execution is required, this setting can be enabled to process files one after another. The data flows then begin processing, starting with the dim state tables. Each data flow is responsible for loading the specific dimension table data from each source file.
+
+While monitoring, I double-checked the naming conventions and everything is correct. The first file (0102_2023.csv) is being processed alongside the second file (0101_2023.csv). The logging details show the exact file being loaded at each step. Given the amount of work being executed for each file, it may be better to run them sequentially to avoid overwhelming the system.
+
+It’s important to note that the database is serverless, meaning it runs on-demand and is not tied to a specific server. Sometimes, when connecting for the first time, it may appear unavailable, but re-trying will start the server and allow the connection. This is normal behavior, so we don’t need to be concerned.
+
+I have stored some of the SQL queries used during yesterday’s work. These can be reused to validate the data loaded into the tables or to truncate tables before re-running the pipeline. These queries will also be included in the resources section of the Udemy course for convenience.
+
+For data validation, I am checking the counts of rows in each dimension table. For example, dim_market currently has 1664 records. This ensures that multiple pipeline runs do not corrupt existing data and that new markets, products, or varieties in these files are loaded correctly. Similarly, dim_variety has 417 records. After the pipeline run completes successfully, we can recheck these counts to ensure everything has been loaded correctly.
+
+The pipeline run may take some time, so we will give it a moment to complete. Once finished, we will analyze the loaded data to confirm that everything is functioning as expected and no existing data has been affected.
+
+# **L) Incremental Load - Debugging Dimension Tables Load Part 2**
+
+As expected, the pipeline run failed. That’s okay. Going through these errors during this training is valuable because it makes you future-proof—you’ll know what to look for and where to investigate if similar issues occur later. Both of the data flows failed, and the error message indicated that the path daily pricing/<file_name> does not exist.
+
+On closer inspection, the issue is with the folder name. In the container, the folder is actually named daily-hyphen-pricing (with a hyphen). This is a simple fix, and because we used pipeline parameters for the folder name, the change is minimal. I just needed to update the pipeline parameter to match the correct folder name.
+
+Additionally, I decided to run the ForEach activity sequentially. Previously, it was running all four data flows for the two files in parallel, which was overloading the debug cluster. Running sequentially reduces the workload on both Data Factory and the SQL server. For testing, I set the default start and end values to 20500 and 2530, respectively.
+
+After making these changes, I reran the pipeline using the integration runtime. The Get Metadata activity successfully picked up the two files, and the If Condition evaluated to False, which correctly triggered the sub-pipeline. I monitored the sub-pipeline, and it ran through all the activities without any issues. The four data flows executed sequentially for the two files—one for the 1st of January 2023 file and the other for the 2nd of January 2023 file.
+
+Everything is looking very promising now. Since the sub-pipeline is being called from the main pipeline, we only need to include a trigger for the main pipeline to automate the load. The sub-pipeline does not need a separate trigger.
+
+Finally, I checked the database tables to validate the data. Both files were successfully loaded. The counts in the dim_market and dim_product tables remained unchanged, which confirms that the existing data was not disturbed. Some new data was loaded into the dim_variety table, as expected. In the next lesson, we will configure the tumbling window trigger to automate this process further.
+
+# **M) Incremental Load - Configure Tumbling Window Trigger**
+
+Let's start creating the new tumbling window trigger for the main pipeline we developed today. I am going to include a tumbling window trigger because the date values in the existing files are in the past, and we cannot use the schedule trigger here. I will name it tumbling_window_trigger_daily_reporting_tables_load.
+
+I want to start processing from the third file, because the first two files have already been processed. This avoids wasting resources. The start time will be set to 31st January 2024, 01:00 AM to 05:30 AM. This ensures that the trigger picks up the remaining files and loads the data into the dimension tables.
+
+For the duration, I initially considered running it for one day, but to cover all files, I will set it for a 24-hour window. The end date is set as 1st February 2024, 21:00, because we do not have any files after 31st January 2024 yet. Later, we can extend the end date as more data becomes available.
+
+In the advanced settings, I set the trigger to run sequentially because running multiple windows concurrently can overload the debug cluster and data flows. This ensures that each data flow runs one after another, reducing system load. Once I set the start and end date values using the trigger system variables (WindowStart and WindowEnd), the trigger will pass these values to the Get Metadata activity. This will determine the list of files to process and start loading them accordingly.
+
+After publishing the trigger, it will start running immediately in the Monitor section. Since the date range is in the past, it will process all files within the given 24-hour window. The pipeline will start reading the files beginning from the first file (20:500), which means the first file may get reprocessed, but the data flow protections prevent duplicates.
+
+While this pipeline is running, I will go back to the ingestion pipeline to start loading any remaining data files from the HTTP web server. This will ensure the two processes can run simultaneously without conflicts. Once this run completes, we can check the logs to confirm that all files have been processed without errors.
+
+In the next lesson, we will review the run details of this pipeline and begin ingesting additional data into the landing layer. We will also discuss performance tuning options, because loading around 12,000 records currently takes about 10 minutes, which is slower than desired. We will explore ways to optimize the data flow performance.
+
+# **N) Incremental Load - Test Tumbling Window Trigger Run**
+
+I went back quickly to check on our trigger. It’s running fine, and the trigger run has completed successfully. The total load time was about 19 minutes, which is reasonable considering that almost 9 or 10 files ran through together. I was a little surprised at the speed—it ran very smoothly. Using the integration runtime ensures that everything processes correctly and efficiently.
+
+Next, I checked the database to verify the results. The record counts are consistent, and new records have been loaded correctly. For example, the dim product table received a few new records, and the dim market table had minimal changes. Most importantly, the dim variety table got updated with the new files, which is expected. There were no discrepancies or unexpected changes in the data.
+
+Overall, everything is working fine. The pipeline and the tumbling window trigger are processing files correctly, and the data is loading as intended. We are now ready to move on and load additional files into the landing layer using the ingestion pipeline in the next lesson.
+
+# **O) Incremental Load - Fixing Data Quality Error on DIM_VARIETY Table Load**
+
+I realized that there was an issue with the dim variety table. Although the table was loading, it was inserting empty strings into the variety values after yesterday’s run. These were not null values, but actual empty strings.
+
+To fix this, I included an additional filter condition in the pipeline. Since we were already checking for not null values in the joiner, there was no chance of null values coming through. Along with that, I added a condition to check that the length of the source column value in the dim file is greater than one. This ensures that any empty strings are discarded.
+
+I then reran the pipeline specifically for the dim variety load. After this change, the issue was resolved, and no new empty records were loaded into the table.
+
+# **P) Loading DIM_DATE Dimension Table - Using INSERT STATEMENTS**
+
+Just gave a query to load "DIM_DATE Dimension Table" using INSERT Statement
+
+# **Q) Data Ingestion Pipeline - HTTP Source Full Load Using Tumbling Window Trigger**
+
+Okay, let's start by removing the existing trigger. Before removing it, I want to copy one value that I will need to pass back later. When removing the trigger from the pipeline, note that we are detaching it, not deleting it completely.
+
+We are going to create a new tumbling window trigger and call it tumbling_window_trigger_daily_pricing_ingest_new. This trigger needs to start from January 10th, 2023, at 12:00 a.m., and run up to December 22nd, 2023, because these are the dates for which source files are available.
+
+I adjusted the start and end times to 00:00:01 a.m. for January 10th and the appropriate end time for December 22nd, 2023. I also set the concurrency to 10 files, so it will process ten days’ worth of files simultaneously into the landing layer.
+
+After publishing, the trigger started running immediately. It is initiating ten instances of the pipeline at the same time, which means that within the next 1–2 hours, all files available in the HTTP web server should be copied into the landing layer.
+
+Once the files are copied, we will trigger the dimension table load to process this data into the dimension tables. Before that, we will focus on loading the fact table. Note that the data flow for the fact table (PAC table) load has not been developed yet, and we will cover that in the next section.
