@@ -251,6 +251,28 @@ This Repository contains my Notes of "Azure Data Factory - Data Engineering With
 
 **Q) Data Ingestion Pipeline - HTTP Source Full Load Using Tumbling Window Trigger**
 
+**X) Fact Table Load DATAFLOW Design**
+
+**A) Fact Table Load Transformation Overview**
+
+**B) Fact Table Load DATAFLOW - Configure Source File**
+
+**C) Fact Table Load DATAFLOW - Configure Dimension Table Source & LOOKUP SurrogateID**
+
+**D) Fact Table Load DATAFLOW - Configure All Dimension Tables & LOOKUP SurrogateIDs**
+
+**E) Fact Table Load DATAFLOW - Configure DATE Dimension Table & LOOKUP SurrogateID**
+
+**F) Fact Table Load DATAFLOW Debugging and Fixing Data Issues**
+
+**G) Fact Table Load DATAFLOW - Configure SINK Transformation**
+
+**H) Fact Table Load DATAFLOW Testing Part 1**
+
+**I) Fact Table Load DATAFLOW - Add Tumbling Window Trigger**
+
+**J) Fact Table Load DATAFLOW - Testing End to End Reporting Database Load**
+
 
 
 
@@ -3161,3 +3183,143 @@ I adjusted the start and end times to 00:00:01 a.m. for January 10th and the app
 After publishing, the trigger started running immediately. It is initiating ten instances of the pipeline at the same time, which means that within the next 1–2 hours, all files available in the HTTP web server should be copied into the landing layer.
 
 Once the files are copied, we will trigger the dimension table load to process this data into the dimension tables. Before that, we will focus on loading the fact table. Note that the data flow for the fact table (PAC table) load has not been developed yet, and we will cover that in the next section.
+
+# **X) Fact Table Load DATAFLOW Design**
+
+# **A) Fact Table Load Transformation Overview**
+
+Let's start by looking into loading the fact table. If you ask me, the easiest way to load data into the reporting database is probably through the fact table load. This is because loading dimension tables requires many checks before making any decisions. Fact table data, on the other hand, needs to be inserted every day as it captures mostly changes in the source data, such as quantity of arrival, minimum price, and maximum price. The fact table is loaded on a daily basis, and you mainly need to insert records without worrying about whether the record already exists or not. Those types of existence checks are not needed here.
+
+We will quickly produce the source-to-target mapping document for the fact table and then move into the data flow development. After that, we will create a new pipeline and include it in the incremental load pipeline that we developed for loading the reporting tables.
+
+The columns with a blue background come from the source file, and our source for the fact table is the same as for the dimension tables. So for four columns, we can copy the source location and source file details directly. The column names are exactly the same as the ones defined in the dimension tables, so mapping is straightforward. There are no transformation rules for these columns, as they have a 1-to-1 mapping from source to target.
+
+The main focus, however, is on the ID columns. One ID column that was initially missed is date_id, which also needs to be included in the fact table. In the original modeling, we created the date dimension by default but forgot to include date_id. The values for this ID already exist in the dimension tables.
+
+There are two sources for these columns, but the main one is the source file. For instance, the state_name column from the source will be used to look up the dim_state table in the reporting database to identify the surrogate key ID created in the dimension table. This lookup approach will be applied to all dimension tables, with only the source column name and the ID column being extracted changing for each case.
+
+We will follow the same process for all remaining ID columns. Most of the columns will be read from the source, such as state_name, market_name, and product_name. The state_name column is already copied, so next we will copy the market_name and product_name columns.
+
+For date_id, the source column data_pricing will be read and looked up against the dim_date table. A similar operation will be applied for other IDs, such as market_id, product_id, and variety_id, using their respective dimension tables. Only the source column name and the dimension table used will change for each case.
+
+Finally, the last two columns, dw_created_date and dw_updated_date, are derived from the system date value. Once the transformation rules are clear for each ID column and the remaining columns, we can start creating the data flow. In the next lesson, we will also identify the datasets needed to build the data flow for this fact table load.
+
+# **B) Fact Table Load DATAFLOW - Configure Source File**
+
+Switching over to Azure Data Factory, the source file for the fact table will be the same one used for loading the dimension tables. In ADF, navigate to the Data Flows section under the actual folder and start developing the data flow there. Begin by creating a new data flow and name it load_reporting_fact_daily_pricing_table.
+
+Next, we will include the source. The proper source file is already available under the transform folder, pointing to the landing source. Copy the complete dataset name carefully because we have multiple datasets now. Make sure the source is properly parameterized and ready to read daily pricing data.
+
+When reading the source, the only column to exclude is origin, as it does not have proper data across source files and does not carry any significance. Apart from that, almost all other columns are required to load the fact table. To exclude the column, select the fact table columns and deselect the origin column.
+
+The next important step is to identify the ID column values from the dimension tables. For example, the dim_state table needs to be included in the same data flow to look up source state_name values against the state_name values in the dimension table.
+
+We will create the necessary datasets for these dimension tables in the next lesson to complete the data flow.
+
+# **C) Fact Table Load DATAFLOW - Configure Dimension Table Source & LOOKUP SurrogateID**
+
+We already have the dataset for the dim_state table, but it is currently used as a sink in the existing data flow. A key rule to remember in Azure Data Factory is: if a dataset is used as a sink, do not use it as a source. This is because the properties you set for a dataset when using it as a sink may not apply correctly if you try to use the same dataset as a source. So, never try to use a sink dataset as a source.
+
+To handle this, we can clone the dataset. I created a new dataset named dim_state_lookup, which will be used in the data flow to look up data from the dimension table. I then added a second source to the data flow using this new dataset. This ensures that we have only one dataset dedicated for lookup purposes.
+
+Once the dataset is selected, the projection automatically includes all columns from the dimension table. However, for the fact table load, we only need the state_name column. We could write a query to select only that column, but since there are minimal transformations, we can use a simple Select transformation to keep only the required column. No other columns are needed for this fact table because each fact table may have different architecture and components, so we want to keep it clean.
+
+With the state_name column ready, we perform a lookup transformation. The lookup matches the state_name coming from the source with the state_name from the dimension table. To avoid confusion, I renamed the column from the dimension table to lookup_state_name. This consistent naming ensures clarity in mapping.
+
+From this lookup, we extract the state_id. Initially, there was a small mistake where I only mapped the state_name, but without extracting the state_id from the lookup, we wouldn’t be able to populate the ID in the fact table. After fixing the mapping, the column is renamed to lookup_state_id for consistency. The lookup now matches the source state_name with lookup_state_name and returns both lookup_state_name and lookup_state_id. Before loading into the final target fact table, we can exclude the lookup_state_name column since it’s not needed in the target.
+
+This process is completed for the dim_state table. A similar operation is required for dim_market, dim_product, and dim_variety. Additional datasets will need to be created for these three tables. In the next lesson, we will create those datasets and make the necessary transformations to bring in all the ID column values as defined in the transformation rules so that the fact table can be fully loaded.
+
+# **D) Fact Table Load DATAFLOW - Configure All Dimension Tables & LOOKUP SurrogateIDs**
+
+Let's start by creating the source datasets for the remaining dimension tables. We can use the clone feature in Azure Data Factory to simplify this. At the end of each cloned dataset name, we include the word source to indicate that it will be used as a source in the fact table data flow. This is done for the product and variety dimension tables as well, so now we have three additional source datasets ready: dim_market_source, dim_product_source, and dim_variety_source.
+
+Next, we return to the data flow to create the additional sources. We start with market_source. Select the dim_market_source dataset and check the projection, which brings in market_name and market_id. To clean up, we use a Select transformation to exclude unnecessary columns such as created_date and deleted_date. We then rename the columns to lookup_market_name and lookup_market_id to avoid confusion with columns in the main source file.
+
+After that, we create a lookup transformation for market name. The logic is straightforward: the primary stream comes from the main source file, and the lookup stream comes from the market lookup dataset. The lookup matches market_name from the source against lookup_market_name and brings back lookup_market_name and lookup_market_id. The lookup_market_name column will not be mapped to the final fact table and can be excluded in the final select transformation.
+
+Next is the product dimension. We add the dim_product_source dataset as a new source. The projection includes product_name, product_group_name, and product_id, but for the lookup, we primarily need product_name and optionally product_group_name for accuracy. Using a select transformation, we rename the columns to lookup_product_name and lookup_product_group_name. We then add a lookup transformation to match the product name and product group name from the source against the lookup dataset, returning lookup_product_name, lookup_product_group_name, and lookup_product_id. Proper naming conventions here are crucial to avoid errors and make debugging easier since the same column names appear across multiple sources.
+
+Finally, we handle the variety dimension. Add the dim_variety_source dataset as a new source. The projection includes the relevant columns, and we use a select transformation to keep only variety_name and variety_id, renaming them to lookup_variety_name and lookup_variety_id. A lookup transformation is then used to match variety_name from the source against the lookup dataset, returning the required lookup columns.
+
+At this stage, all the ID columns required for the fact table, except for date_id, have been brought in through the lookup transformations. The date_id column will be included in the fact table in the next lesson, as it was not yet added to the data flow.
+
+# **E) Fact Table Load DATAFLOW - Configure DATE Dimension Table & LOOKUP SurrogateID**
+
+If you notice, we never created the dataset for the date dimension because it is outside the existing data flow; it was uploaded manually. I will provide the data for the dim_date table, but to load the fact table, we need the date_id. To handle this, we can quickly replicate the dim_state dataset and re-import the date_name columns. I created a new dataset named dim_date_source and updated the source table name to the dim_date table instead of dim_state. Then, I cleared the schema and imported the schema from the dim_date table. This dataset will be used in the data flow to match the data_pricing values coming from the source against the dim_date table.
+
+Next, in the data flow, we added the dim_date_source as a new source named dim_date_lookup. We only have one source column for this table. Using a Select transformation, we keep only the relevant columns, renaming data_pricing as lookup_data_pricing and date_id as lookup_date_id, while deleting the unnecessary columns.
+
+It is important to note that the column data_pricing coming from the source file is in string format, whereas the lookup value in the dim_date table is in date format. To avoid errors during the lookup transformation, we need to convert the source data_pricing value into a proper date format before joining with the dim_date table.
+
+To do this, we add a Derived Column transformation. We create a new column named data_pricing_formatted and use the date conversion function to convert the string value from the source into a date. When specifying the format in ADF, note that the month is represented by a capital M in the function. Based on the data preview from the debug cluster, the source data_pricing is in ddMMyyyy format.
+
+After converting the column, we can use data_pricing_formatted for the lookup with the dim_date table in the data flow. While debugging, it is important to ensure that the correct parameters are passed to the data flow debug cluster. If the wrong parameter is passed, you may need to disable and re-enable the debug cluster to reset the values.
+
+Once the conversion and debug are complete, the data_pricing_formatted column can be used in the lookup transformation to retrieve the date_id from the dim_date table. The actual lookup transformation and mapping will be handled in the next lesson.
+
+# **F) Fact Table Load DATAFLOW Debugging and Fixing Data Issues**
+
+I quickly identified the Reset Debug Settings option in Azure Data Factory. By going there, you can access the saved parameters and correct any values that were passed incorrectly. After updating the parameters, the data preview should work properly. Now, the pipeline tries to bring the full source data from the source file, including all the transformations applied so far.
+
+At this stage, we have converted the source data_pricing column into the proper date format so that it can be joined with the dim_date table. The derived column is part of the main stream, and we use it to look up the data_pricing values against the lookup column in the date dimension to retrieve the date_id. Initially, the data preview did not show any errors, but the lookup did not return the expected date_id values.
+
+On inspecting, we realized that the issue was with the date format in the derived column transformation. Originally, we used ddM as the format, but the source file provides the date in Mddyyyy format. This mismatch caused all date_id values to come as null. By correcting the derived column format to MMddyyyy, the lookup started returning the correct date_id values. This highlights the importance of ensuring the source format matches the expected format for lookups.
+
+Next, it is critical to ensure that none of the ID column values returned from the lookups are null. For example, some lookup_market_id values were null because of extra spaces in the source or lookup table. To fix this, we used the Trim function in the Expression Builder to remove any leading or trailing spaces from both the source and lookup columns. This ensures proper matching between the source values and the dimension table values.
+
+After applying the trim function and checking the derived column, all lookup ID values, including lookup_date_id, lookup_state_id, lookup_market_id, and others, are correctly populated. This confirms that the pipeline transformations are working as expected, and the fact table can now be loaded without missing or null ID values.
+
+# **G) Fact Table Load DATAFLOW - Configure SINK Transformation**
+
+It looks like the issue with some market names was intermittent, because when I selected those specific market names from the dim_market table, the lookup returned the correct market_id and market_name. I checked other records as well, and everything appeared fine. Therefore, we don’t need to worry too much about this; running the end-to-end pipeline will likely resolve such intermittent issues.
+
+Now we can map all the values into the fact table. There are two columns we need to derive: dw_created_date and dw_updated_date. Both can be mapped using a derived column transformation with the current date value function. For the fact table, we don’t need to perform a lookup because each day’s file contains all pricing information. Every day’s data should be fully loaded into the fact table without checking if it already exists.
+
+Next, we create a select transformation to exclude unnecessary columns. Only the fact table mapping columns should remain. We remove the extra columns coming from the lookup tables, such as lookup_state_name, lookup_market_name, lookup_product_name, product_group_name, lookup_variety, and data_pricing_formatted. Some columns like lookup_date_id are still needed. Keeping unnecessary columns during debugging is useful, but they can be excluded in the final pipeline once everything works correctly.
+
+After that, we create the sink for the fact table. I duplicated one of the dimension table datasets, renamed it to fact_daily_pricing, and updated the actual table name in the schema. All columns, including date_id, are now available. In the data flow, we include this sink to load the fact table. In the sink settings, we choose Insert only and leave other options as default.
+
+In the mapping section, we uncheck auto-mapping to manually map all columns. Some columns like state_id and lookup_state_id required manual mapping because their names did not exactly match. This is a good exercise to practice manual mapping, similar to what we’ve done previously for missing columns. The source columns for minimum, maximum, and modal pricing are coming from the source file correctly.
+
+Finally, we ensure that dw_created_date and dw_updated_date are included and properly renamed in the select transformation. Any changes to column names prior to the select transformation need to be reflected within the select transformation itself. Once all mappings are correct, the data flow is ready. We can publish the changes and run the pipeline in the next lesson.
+
+# **H) Fact Table Load DATAFLOW Testing Part 1**
+
+We are going to use the same pipeline that loads the reporting tables to also run the fact table data flow. This works well because the pipeline already has proper logic to identify new files from the landing folder and check whether the folder is empty or not. It also calls the dimension table load pipeline and uses a ForEach activity to iterate through each file and load it into the dimension tables.
+
+To run the fact table load, I created a new pipeline by cloning the dimension table pipeline. In this new pipeline, I replaced the data flow with the fact table data flow that we just created. All parameters, including container name, folder name, and item names from the ForEach activity, remain the same because we are using the same source files. This allows the fact table load to work with the same logic for identifying source files as the dimension table pipeline.
+
+Next, I included the fact table load pipeline in the main master pipeline, which previously only called the dimension table load pipeline. I added a new Execute Pipeline activity for the fact table load and passed the necessary parameters, especially the source file list coming from the Get Metadata activity. The logic for processing files is identical to the dimension table load pipeline.
+
+Since the dimension table load has already been run, I deactivated that activity temporarily to test only the fact table load. After publishing the pipeline, I started debugging it. I configured the debug to start from the first files (from January 1st, 2023) because no data has been loaded into the fact table yet. The debug run successfully called only the fact table data flow.
+
+The Get Metadata activity confirmed that the correct files are being processed in order, and the fact table load ran as expected. After the debug run, we can check the output in the fact table. Initial checks showed that the data is loaded properly, but some market_id values were null in certain rows. This mirrors the behavior we observed during the data flow debug.
+
+Before enabling the tumbling window trigger to load a year’s worth of data, we need to investigate the null market_id values. Running a query like SELECT COUNT(*) FROM dim_market WHERE market_id IS NOT NULL shows 158 valid records, but many others are null. This issue needs to be resolved before the end-to-end load can be executed to ensure data integrity in the fact table.
+
+# **I) Fact Table Load DATAFLOW - Add Tumbling Window Trigger**
+
+The fact table load ran successfully. As suspected, the earlier issue was intermittent, because no market_id values were null in the target table this time. The fact table now contains two days’ worth of data and is ready to be scheduled via a tumbling window trigger.
+
+Next, we went to the main pipeline to review the existing tumbling window trigger. I disabled the data flow debug and edited the trigger that was previously used for daily reporting loads. The earlier trigger had a start time of January 31, 2024, at 1:25 a.m. Since changing the end date didn’t work properly, it was better to create a new tumbling window trigger with the same start date so that all historical data would be processed correctly.
+
+The landing container already contains one year’s worth of data, ingested from the HTTP web server. Each file is approximately 1–1.22 MB, and all files are ready to be loaded into the fact table. The new tumbling window trigger ensures the fact table load runs end-to-end without affecting previously loaded dimension tables.
+
+We stopped the previous trigger for reporting table loads to avoid duplicate execution. In the main pipeline, the old trigger was detached, and a new trigger was created, named tumbling_window_trigger_daily_reporting_table_load_new. The start time was set to January 31, 2024, at 1:25 a.m., and the end time was set to the current time. Initially, the frequency was set to run every 15 minutes, but it was later reduced to every 5 minutes because a large number of files were copied within a short window.
+
+In the advanced settings, concurrency was set to one to avoid processing multiple files simultaneously. This ensures stability when hundreds of files are being ingested at the same time. Additionally, the pipeline parameters were set to pass the tumbling window trigger outputs, using the trigger’s start time as the pipeline start date and the trigger’s end time as the pipeline end date.
+
+Finally, the trigger was published. This setup will load the fact table for all historical files without modifying the dimension tables, which remain unchanged with the same product names, states, varieties, and market names. Monitoring confirms that the fact table load has started, and over time, all files up to December 22, 2023, will be processed and loaded into the fact table.
+
+# **J) Fact Table Load DATAFLOW - Testing End to End Reporting Database Load**
+
+The fact table trigger run has been completed successfully. Over the course of this run, we managed to load around 350 days’ worth of files into the reporting database. Querying the fact table shows that nearly half a million records have been inserted, which is impressive for this volume of data. All ID columns are populated properly, except for a few known issues with the variety ID, the date ID, and the state ID, which we investigated further.
+
+When checking for null values in the ID columns, everything is coming through correctly, except for the variety ID. This is expected because some records in the source have empty spaces, which cause the null values. Importantly, the key IDs that are crucial for reporting—product, market, and state names—are all populated correctly. The date ID is also populated properly, and only a very small fraction of records (around 2,000 out of 400,000) have missing variety IDs. This is an acceptable percentage, considering it stems from the source data quality, not the ETL process.
+
+All dimension tables have been loaded with a year’s worth of source data, and the fact table is also fully loaded with year-long data. The reporting database is now fully prepared for end users to start analyzing and generating reports. This is a significant milestone and marks the completion of the development for the reporting database.
+
+The next steps involve making configuration changes and code adjustments to ensure that the ETL code can be deployed to subsequent environments. This will be covered in the coming sections. Successfully reaching this point in the project is a major achievement—it completes a key part of the course objectives and sets the stage for the next phase.
+
+The next phase will focus on designing and loading the data lake, which will be explored in the upcoming sections. This will build upon the reporting database work and expand the data architecture for more advanced analytics.
