@@ -273,6 +273,16 @@ This Repository contains my Notes of "Azure Data Factory - Data Engineering With
 
 **J) Fact Table Load DATAFLOW - Testing End to End Reporting Database Load**
 
+**XI) Data Lake Design - Medallion Architecture**
+
+**A) Data Lake Design Overview**
+
+**B) Data Lake Design - Setup Container and Folder Structure**
+
+**C) Data Lake Design - Additional Source Data Requirements**
+
+**D) Data Lake Design - Additional Source Data Format Overview**
+
 
 
 
@@ -3323,3 +3333,143 @@ All dimension tables have been loaded with a year’s worth of source data, and 
 The next steps involve making configuration changes and code adjustments to ensure that the ETL code can be deployed to subsequent environments. This will be covered in the coming sections. Successfully reaching this point in the project is a major achievement—it completes a key part of the course objectives and sets the stage for the next phase.
 
 The next phase will focus on designing and loading the data lake, which will be explored in the upcoming sections. This will build upon the reporting database work and expand the data architecture for more advanced analytics.
+
+# **XI) Data Lake Design - Medallion Architecture**
+
+# **A) Data Lake Design Overview**
+
+We took a significant amount of time to build our reporting layer as part of the data analytics project.
+
+We began the project by ingesting product pricing data from a web service. As part of developing the ingestion pipeline, we learned how to design metadata-driven ingestion pipelines and how to use Azure Data Factory automated trigger mechanisms to schedule these pipelines. We also implemented incremental data loading, where changes in the source data were automatically captured and loaded into the data analytics platform.
+
+After ingestion, we designed the reporting layer using dimensional data modeling techniques. As part of this approach, we created a dedicated reporting database. The dimensional data modeling output consisted of dimension tables and fact tables. To support this, we created an Azure SQL Server database and implemented the required dimension and fact tables.
+
+We then developed Azure Data Factory pipelines to load the dimension tables, handling both scenarios—with history (slowly changing dimensions) and without history. In addition, we developed ADF data flows to load the fact tables into the reporting database. Once again, we applied change data capture (CDC) mechanisms so that only changed records from the source were processed and loaded.
+
+To ensure automation, we implemented scheduling mechanisms in Azure Data Factory, allowing the pipelines to run automatically. As a result of this entire process, we successfully loaded almost 350 days’ worth of data from the source system into the reporting database.
+
+We also briefly touched upon performance tuning in Azure Data Factory, specifically focusing on tuning the ADF data flow clusters. However, there is still more to learn regarding performance optimization in the SQL Server database, which we plan to explore next.
+
+With the reporting layer in place, we can now move on to building the next layer of the architecture: the Data Lake. This layer is intended to support the AI and machine learning components of the data analytics project.
+
+When we talk about a Data Lake, we are clearly stepping into the modern data engineering era. While traditional reporting databases follow strict rules and conservative design principles—such as dimensional modeling techniques that have existed for decades—the Data Lake represents a more flexible and modern approach to data storage and processing.
+
+So far, we have built a reporting database that follows strict modeling rules. Dimensional modeling has been around for more than 20 years and is still widely used today, especially for reporting and analytics. While it is essential to understand this approach, the Data Lake introduces a completely different mindset.
+
+The Data Lake does not impose strict restrictions on the type of data that can be ingested. You can bring any type of data into the Data Lake without worrying about rigid schemas upfront. To manage and organize this data, the Data Lake is typically divided into three logical layers: Bronze, Silver, and Gold.
+
+The Bronze layer stores source data in its raw format. This is the landing zone where data is ingested exactly as it is received from the source systems.
+
+The Silver layer is where the data from the Bronze layer is transformed into a cleaner, more structured format. For example, if the source data is stored as JSON files with nested arrays in the Bronze layer, those nested structures can be flattened in the Silver layer to make the data more accessible and usable for downstream processing.
+
+The Gold layer represents the final, refined data that is ready for consumption. Unlike traditional dimensional modeling, the Data Lake layers do not enforce strict rules such as eliminating duplicate records or adhering to predefined table structures. This flexibility allows the Data Lake to deliver powerful outputs to end users.
+
+Although the Data Lake is commonly used for AI and machine learning workloads, it can also support reporting layers built on top of it. Since the Data Lake can store nearly all data related to the project, it becomes a comprehensive and versatile data source.
+
+Another key advantage of the Data Lake is that there are no practical restrictions on data size or schema definitions. You are not forced to carefully define column lengths or optimize storage space upfront. Cloud infrastructure makes this possible by providing virtually unlimited resources.
+
+This shift in mindset is significant. Earlier in my career, designing database tables required careful consideration of data types and column lengths. Even today, when designing reporting databases, we still analyze source column lengths to determine optimal data types. However, when it comes to the Data Lake, this traditional way of thinking is largely unnecessary due to the flexibility and scalability of cloud storage.
+
+That said, it is important to be mindful of these habits, as they are deeply ingrained from years of working with traditional databases.
+
+Now, we are ready to start building our Data Lake architecture. We will use a combination of Azure Data Lake Storage and Azure SQL Database. Primarily, the Bronze and Silver layers will reside in the Azure Data Lake Storage account. For the Gold layer, we may create a new schema in the Azure SQL Server database and load the processed data into SQL tables.
+
+To build these layers, we will also introduce additional data sources, such as third-party APIs. These sources will provide data entirely in JSON format, allowing us to work with a new type of source system.
+
+Before ingesting this new data, we will first set up the Bronze, Silver, and Gold layers within the Data Lake Storage account. We will use a single storage account and create a root container for the Data Lake. Inside this container, we will create three subfolders: bronze, silver, and gold.
+
+The ingestion process will start by loading source data into the Bronze layer. From there, we will build transformations to populate the Silver layer, followed by processing that produces the Gold layer, which will be ready for predictive modeling.
+
+Our primary focus at this stage will be predictive modeling, and this Data Lake design will serve as the foundation for that work.
+
+With this plan in place, the next step is to create a new container in the Azure Data Lake Storage account and set up the Bronze, Silver, and Gold folders, before proceeding further with the Data Lake design and implementation.
+
+# **B) Data Lake Design - Setup Container and Folder Structure**
+
+We are going to store the Data Lake data in the same Azure Data Lake Storage account that we have already used for our reporting purposes.
+
+Within this storage account, we will create a brand-new container dedicated specifically to Data Lake–related data. We will name this container Pricing Data Lake.
+
+Inside the Pricing Data Lake container, we will create three folders to represent the three logical layers of data in the Data Lake architecture.
+
+The first layer is the Bronze layer. This layer is used to store all raw data exactly as it is received from the original source systems, without applying any transformations.
+
+The second layer is the Silver layer. In this layer, we will transform and refine the data that was ingested into the Bronze layer, converting it into a more structured and usable format.
+
+The final layer is the Gold layer, which represents the curated and business-ready data. This data can be directly consumed by end users and is specifically designed to support AI and machine learning services.
+
+Now that we have created the Data Lake structure along with these three layers, we can take a quick look at the setup.
+
+In the next lesson, we will explore the different types of additional data that we plan to bring into the Data Lake, which will help make this architecture fully ready for AI and machine learning workloads.
+
+# **C) Data Lake Design - Additional Source Data Requirements**
+
+We have already ingested product pricing information from a web service into our landing layer. Based on this data, we designed the reporting database and successfully populated it with the pricing information of the products.
+
+Now, we are moving to the next phase of our data analytics project: building the Data Lake. This Data Lake will support pricing prediction algorithms for these products. At this stage, our focus is on preparing and enriching the data so that it can be effectively used by AI and machine learning models.
+
+To support these prediction algorithms, we need additional data that directly influences product prices on a global scale. Therefore, we must identify and ingest external data sources that have a clear impact on pricing.
+
+From a common-sense perspective, if there is high demand for a product, its price is likely to increase. Based on this understanding, the first additional dataset we are going to ingest is demographic data. This data will come from a demographic API and will include population data along with market location information.
+
+By market location, we mean geographical details such as longitude and latitude provided by the API. This is the first external dataset we are bringing in, as we plan to merge this information with existing pricing data and make it available for prediction algorithms. While AI and machine learning developers will determine how much weight to assign to this factor, our responsibility is to identify and prepare the relevant data that affects product prices.
+
+Among all demographic attributes, population size in a market is one of the most significant factors influencing product demand and pricing. Therefore, this will be the first dataset we ingest from the demographic data API.
+
+The next dataset we plan to ingest is weather data, as weather conditions also play a critical role in influencing product prices. Weather not only impacts pricing but also affects production levels, supply chains, and availability of products. For this reason, we will bring in weather data from an open-source system that allows non-commercial usage.
+
+With the free API account, we can retrieve weather data for approximately 100–200 markets, which is sufficient for our use case. Since most of our pricing data relates to the past year, we also require historical weather data, and fortunately, the selected API supports historical data retrieval.
+
+The third dataset we will ingest is country policy data. Government policies can have a significant impact on global product prices. For example, when India imposed a ban on rice exports at certain times, rice prices changed globally. Such policy-related information is available as open-source data.
+
+We will ingest this country policy data into the Data Lake, transform it, and integrate it with our pricing data. The final, enriched dataset will be stored in the Gold layer, making it available for AI and machine learning developers.
+
+It is important to clarify that building AI and machine learning models is not within the scope of this project. Our objective is to prepare and deliver high-quality, enriched data that can support AI and machine learning services.
+
+In addition to these datasets, we will also ingest global pricing data from the same HTTP web services. The pricing data currently loaded into the reporting database contains only India-specific pricing information. To support global price prediction, we need pricing data from other regions as well.
+
+To achieve this, we will develop a proper ingestion pipeline to load global pricing data into the Data Lake. While doing so, we will begin exploring the Parquet file format, which is widely used in modern data platforms. Until now, we have preserved source data formats—for example, delimited text files remained delimited text files in the landing layer.
+
+However, for global pricing data, we will convert the delimited text format into Parquet format, particularly in the Silver layer. Learning how to read and write Parquet files using Azure Data Factory is a valuable and important skill. Along with this, we will also work with JSON data, which introduces more complex structures.
+
+From our databases, we have already ingested some reference data such as country codes, country names, market names, exchange rates, and commodity codes. This reference data will be very useful when building the Silver and Gold layers.
+
+In the Bronze layer, we will store all incoming data in its raw format. The only exception is the global pricing data, which will be converted into Parquet format in the Silver layer. At this stage, we will apply transformations to handle complex data structures.
+
+Unlike pricing data, some of the incoming JSON data contains nested arrays and dictionaries, making the structure more complex. We need to flatten this raw data before we can merge it with other datasets. Once flattened and standardized, the data can be integrated to create the final Gold layer, which will be ready for AI and machine learning services.
+
+In the next lesson, we will take a quick look at the structure of the additional datasets we plan to ingest. After that, we will begin the ingestion process with demographic data.
+
+Although global pricing data is also required, we have already explored how to ingest data from HTTP web services. Therefore, we can reuse the same pipelines and scheduling mechanisms for global pricing data ingestion.
+
+What we will focus on next is something new—ingesting data from external APIs, which is a very common approach in modern data analytics platforms. Today, APIs are frequently used to bring external data into analytical systems.
+
+I’ll see you in the next lesson, where we will review the structure of the additional data sources and start ingesting the demographic data.
+
+# **D) Data Lake Design - Additional Source Data Format Overview**
+
+Let’s start by going through each of the additional source datasets that we are planning to bring into the data analytics platform and load into the Data Lake. This will give us a clear understanding of the types of data we will be working with and how they contribute to the overall solution.
+
+The first additional dataset is demographic data. This data captures population information for each market that we already track in our daily pricing data. Since pricing is analyzed at the market level, population data helps us understand how price changes correlate with demand in those markets.
+
+Along with population data, this dataset also provides geographical information, such as latitude and longitude. These geographic coordinates will later be used to fetch weather data for each market. In addition, the demographic data includes attributes such as country ID and local administrative divisions for each market. This is important because the same market name can exist across multiple states or cities. To handle this, we retrieve at least five possible matches per market, allowing us to accurately map demographic data to the correct market captured in the daily pricing data. This makes demographic data the first dataset we will ingest.
+
+The second dataset is weather data, which captures weather conditions for each market within a coverage radius of approximately 25 miles. This dataset is more complex in structure, as it contains nested dictionaries and arrays within the JSON response. We will explore how to handle this complexity using Azure Data Factory.
+
+Each JSON response contains one month’s worth of weather data, whereas our product pricing data is captured at a daily level. Therefore, we need to split the monthly weather data into individual daily records so that it can be aligned with daily pricing data.
+
+The third additional dataset we plan to ingest has an even more complex structure, containing multiple nested arrays. However, since Azure Data Factory provides robust transformation capabilities for handling complex JSON data, we will tackle this dataset last. The idea is to start with simpler JSON ingestion, gradually move to more complex structures, and finally handle the most complex dataset once we are comfortable with the transformations.
+
+In addition to these datasets, we also need to ingest global pricing data. This data is slightly different from the pricing data we have already captured. While it contains similar pricing information, it is collected across multiple countries. It includes country names and country-specific product codes, which are universally recognized. These codes allow us to map product names across different countries, enabling global price comparison.
+
+One important difference is that global pricing data is captured at a monthly level, whereas our existing pricing data is captured daily. Before merging these datasets, we need to aggregate daily pricing data into monthly-level data. This aggregation will be performed using Azure Data Factory transformations.
+
+At this point, we still have a lot of work to do, but we already have a strong foundation. Most of the logic and components used while building the reporting database will be reused here. In fact, around 70% of the components and logic will remain the same, making this phase a valuable revision of previously learned concepts.
+
+For example, we previously used the Aggregator transformation to identify unique records while loading dimension tables. In the Data Lake context, the same aggregator can be reused to aggregate daily pricing data into monthly-level data. Without this aggregation, we would not be able to compare local pricing data with global pricing data.
+
+Once this comparison is possible, we can derive additional insights and recommendations. For instance, by analyzing which products are cultivated or produced in a specific country, we can compare that list with the products available in our dataset. If certain products are not produced locally, it indicates potential import dependency, allowing us to identify export opportunities for other countries.
+
+As mentioned earlier, the Data Lake is highly flexible and does not impose strict requirements. It can be used to support reporting, recommendation systems, and advanced analytics. We can build reporting databases on top of the Data Lake, identify potential business opportunities, and also predict future product prices.
+
+Our objective is to design the Data Lake in a way that it remains open, flexible, and extensible, supporting multiple use cases related to product pricing analytics, both now and in the future.
