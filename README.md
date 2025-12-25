@@ -283,6 +283,30 @@ This Repository contains my Notes of "Azure Data Factory - Data Engineering With
 
 **D) Data Lake Design - Additional Source Data Format Overview**
 
+**XII) Data Lake Bronze Layer Data Ingestion - Demographics Data REST API**
+
+**A) Demographics Data Ingestion Overview**
+
+**B) HTTP Request Vs REST API REQUEST RESPONSE Overview**
+
+**C) Demographics Data Ingestion - Configure Linked Service**
+
+**D) Demographics Data Ingestion - Configure Source and Sink Datasets**
+
+**E) Demographics Data Ingestion - Create Ingestion Pipeline**
+
+**F) Demographics Data Ingestion - Configure Pipeline Parameters**
+
+**G) Demographics Data Ingestion - Create and Upload Metadata File**
+
+**H) Demographics Data Ingestion - Configure LOOKUP and FOREACH Activity**
+
+**I) Demographics Data Ingestion - Pass Dataset Parameter Values From Metadata File**
+
+**J) Demographics Data Ingestion - Identifying and Fixing The Errors**
+
+**K) Demographics Data Ingestion - Identifying and Fixing User Errors**
+
 
 
 
@@ -3473,3 +3497,374 @@ Once this comparison is possible, we can derive additional insights and recommen
 As mentioned earlier, the Data Lake is highly flexible and does not impose strict requirements. It can be used to support reporting, recommendation systems, and advanced analytics. We can build reporting databases on top of the Data Lake, identify potential business opportunities, and also predict future product prices.
 
 Our objective is to design the Data Lake in a way that it remains open, flexible, and extensible, supporting multiple use cases related to product pricing analytics, both now and in the future.
+
+# **XII) Data Lake Bronze Layer Data Ingestion - Demographics Data REST API**
+
+# **A) Demographics Data Ingestion Overview**
+
+We are currently working on building our data lake architecture. As part of this design, we need to create three layers in the data lake: Bronze, Silver, and Gold.
+
+At this stage, our focus is on building the Bronze layer. The Bronze layer is responsible for ingesting raw source data exactly as it is received, without any transformations. It serves as the first landing zone in the data lake.
+
+For this implementation, we will ingest data from a demographic API. The data retrieved from this API will be stored directly in the Bronze layer of our data lake storage account.
+
+The process begins by reading data from the API and ingesting it into the Bronze layer, establishing the foundation for downstream processing in the Silver and Gold layers.
+
+# **B) HTTP Request Vs REST API REQUEST RESPONSE Overview**
+
+We have already completed HTTP data ingestion. During that process, we provided two key values in the dataset to read the actual source data.
+
+The first value is the source base URL, which we configured in the linked service. The second value is the source relative URL, which points to a specific resource under that base URL. This relative URL was parameterized in the dataset.
+
+At runtime, Azure Data Factory concatenates the base URL with the relative URL, sends a request to the HTTP web server, reads the data from the source, and ingests it into the data lake storage account.
+
+In this scenario, we are going to ingest data from a REST API. Even though this is a REST API request, we will still use the same HTTP connectivity for this ingestion. Azure Data Factory also provides a dedicated REST API linked service, which we will use for subsequent API ingestions. For this use case, however, we will continue with the existing HTTP linked service approach.
+
+We will now configure a new HTTP linked service that points to a different URL, but follows the same overall mechanism as the earlier HTTP ingestion.
+
+The key difference between HTTP file ingestion and REST API ingestion is that, in HTTP ingestion, a physical file exists on the HTTP web server, and Data Factory simply reads that file. In the REST API case, there is no physical file present.
+
+Instead, we are making a request to a REST API endpoint via a URL. If you look at the portion of the URL after the question mark (?), you will notice that we are passing a set of parameters. These parameters are commonly referred to as the search string or query string in REST APIs.
+
+The source API application receives our request along with the search string parameters, uses those values to search its own internal data store, and then fetches the matching results. It returns the data dynamically in the response format we requested, which in this case is JSON.
+
+This is the main distinction: there is no static file involved in REST API ingestion. Instead, a software application accepts the request from Azure Data Factory, queries its own data store based on the provided parameters, and returns the results dynamically at runtime.
+
+Our goal is to ingest this dynamically returned data into the Bronze layer of our data lake storage account.
+
+To achieve this, we will now create a new linked service in Azure Data Factory to connect to the REST API URL and configure the ingestion accordingly.
+
+# **C) Demographics Data Ingestion - Configure Linked Service**
+
+By now, I expect you to be very familiar with opening Azure Data Factory and Data Factory Studio. If I ask you to create a dataset, you should not need any additional help or reference material to locate where dataset creation happens, because we have already done this multiple times.
+
+You can navigate to the Author tab, go to Datasets, right-click, and create or open a dataset. Earlier, we created linked services directly while creating datasets. However, as a standard best practice, linked services should ideally be created under the Manage tab after understanding the different components, rather than creating them implicitly at the beginning.
+
+So, our first step here is to create a new linked service.
+
+For this ingestion, we are going to use HTTP, similar to how we handled HTTP data ingestion earlier. Although this is a REST API, this specific API does not support the REST connector, so we are using the HTTP linked service as a workaround. The remaining two REST APIs in this project will use the native REST data store. Even though we are using HTTP here, the final outcome will be the same.
+
+Since we already know how to create an HTTP linked service, we’ll follow the same steps. To differentiate this linked service from the previous HTTP one, we will name it HTTP Geolocation Service.
+
+You are already familiar with the Integration Runtime. At runtime, the integration runtime is responsible for connecting to this HTTP web service and reading the data.
+
+For the Base URL, we will provide the value up to a certain point in the endpoint so that Data Factory can connect to the service. The remaining part of the URL—specifically the search string parameters—will be passed dynamically as the relative URL property in the dataset. This is similar to how we handled HTTP file ingestion, but in this case, we will dynamically construct the search string. We’ll explore that in more detail in subsequent lessons.
+
+For authentication, we will use Anonymous, because all the URLs selected for this course are open-source. In real-time projects, you will most likely need some form of authentication, such as basic authentication using a username and password, client certificates, or other security mechanisms depending on how the API is protected. For now, anonymous authentication is sufficient.
+
+After configuring the linked service, we test the connection. Once the test succeeds, the linked service is created and we can publish it.
+
+Our next task is to create the dataset to read the data dynamically. In this case, we are not reading a physical file. Instead, we are creating a dataset that can pass a search string to the API, receive the response in JSON format, and store that data in the Bronze layer of our data lake storage account.
+
+To achieve this, we need to create a parameterized source dataset. The dataset will accept multiple parameters, and we will pass values for these parameters from the pipeline.
+
+We already know several ways to pass parameter values in Azure Data Factory. These values can come from metadata files, be derived dynamically using expressions, or be passed directly within the pipeline. We have explored multiple approaches earlier, but this scenario requires a slightly deeper understanding, which we will cover while building the pipeline.
+
+The next step, therefore, is to create the source dataset, parameterize it to connect to this API, and enable it to accept dynamic values for the search parameters.
+
+# **D) Demographics Data Ingestion - Configure Source and Sink Datasets**
+Let us begin by creating the dataset required to connect to the geocoding REST API.
+
+At this point, we are not going to perform any experimental labs, because we are already familiar with most of the components in Azure Data Factory. We will directly proceed with creating the required datasets.
+
+We will create the source dataset under the Ingest folder. I select New Dataset, and since this is customer source data returned by the API, and the response format is JSON, I choose JSON as the dataset format.
+
+I will name the dataset as mds_ctp_source_geocoding_data. Since this dataset represents geolocation information, I update the dataset name to align with the actual source we are reading from.
+
+At this point, Data Factory asks for the relative URL. I am not going to hardcode the relative URL here because this API requires search string parameters, which we want to pass dynamically. Therefore, we will parameterize the relative URL as part of the dataset configuration.
+
+Once that is done, I click OK, and the source dataset is created.
+
+Next, I will create a dataset parameter for the relative URL. As we know, parameters can be defined at the dataset level and then mapped to connection properties. I map this parameter to the Relative URL field using dynamic content.
+
+At this stage, we are not connecting to the actual REST API yet. We are simply creating the dataset structure. Later, when we build the pipeline, we will see how to dynamically pass values to this relative URL parameter.
+
+Now, we need to create the sink dataset as well.
+
+The sink will be Azure Data Lake Storage Gen2, and since the API response is in JSON format, the sink dataset format will also be JSON. This dataset represents the Bronze layer of our data lake.
+
+I name the dataset in line with the source naming convention, using geolocation as part of the name.
+
+For the linked service, instead of using an existing one, I create a new linked service specifically for the data lake. I name it ls_adls_datalake. Although it points to the same storage account, this naming convention makes it clear that this linked service is intended for data lake ingestion pipelines. This helps with clarity and reuse when building multiple pipelines.
+
+I create the linked service on the fly, which is absolutely fine.
+
+For the file path configuration, I do not provide any static values. Instead, I parameterize the path at the dataset level, as we usually do. This allows the pipeline to dynamically control where the data is written.
+
+I then create three dataset parameters:
+
+Data lake container name
+
+Data lake folder name
+
+Data lake file name
+
+These parameters are mapped to the corresponding connection properties using dynamic content. We have done this many times before, so the process should be familiar. Later, the pipeline will supply values for these parameters.
+
+At this point, both the source dataset and sink dataset have been created, along with all required parameters.
+
+The final step here is to publish the changes.
+
+In the next lesson, we will start building the pipeline to read data from the REST API and load it into the Bronze layer of the Data Lake.
+
+# **E) Demographics Data Ingestion - Create Ingestion Pipeline**
+
+We have now created all the datasets required to build our pipeline, so the next step is to create the pipeline.
+
+While naming the pipeline, we follow a clear naming convention that reflects the layer being processed. Since we are loading data from the demographics data API into the Bronze layer of the data lake, the pipeline name includes bronze.
+
+Earlier, we referred to this layer as the landing layer when designing reporting databases. However, in the context of a data lake architecture, this layer is referred to as the Bronze layer.
+
+Next, we add a Copy Data activity to the pipeline. We do not need a data flow at this stage because we are simply reading data from the REST API and storing it in the same format. There are no transformations performed in the Bronze layer.
+
+I give the Copy Data activity a meaningful name based on the action it performs—loading geolocation data.
+
+Source Configuration
+
+For the source, we select the geolocation source dataset that we created earlier. Since this is an HTTP-based API, the source type is HTTP.
+
+Because we parameterized the relative URL at the dataset level, the pipeline now asks for a value for that parameter. Ultimately, this value should be passed dynamically. However, since this is our first time testing the API integration, we hardcode the search string for now to validate the setup.
+
+We can quickly use Preview Data to confirm that the API call is working and that data is being returned correctly in JSON format. The preview works without any issues, confirming that the source configuration is correct.
+
+Sink Configuration
+
+Next, we configure the sink.
+
+We select the Bronze geolocation sink dataset. This dataset also contains parameters, so we provide temporary hardcoded values to validate the pipeline execution.
+
+Container name: pricing-datalake
+This is the new container created specifically for our data lake. We are no longer using the landing container.
+
+Folder name: bronze
+This folder stores raw data ingested from source systems.
+
+File name: For now, we use the same market name that we are querying, just to confirm that everything is working correctly.
+
+Pipeline Execution
+
+With both source and sink configured, we run the pipeline.
+
+The pipeline executes successfully, which confirms that:
+
+Data is being read from the REST API
+
+The JSON response is being written to the Data Lake Bronze layer
+
+To verify, we navigate to the Bronze layer in the Data Lake. Initially, the folder is empty. After refreshing, we can see the JSON file created for the selected market. Opening the file confirms that the data has been ingested correctly from the geolocation REST API.
+
+This confirms that our end-to-end ingestion pipeline is working as expected.
+
+Next Step
+
+The final task is to remove all hardcoded values and make the pipeline fully dynamic.
+
+We already know multiple approaches to achieve this:
+
+Pipeline parameters
+
+Metadata-driven pipelines
+
+In the next lesson, we will explore the best approach for dynamically passing values to:
+
+The REST API relative URL
+
+Data Lake container name
+
+Folder name
+
+File name
+
+# **F) Demographics Data Ingestion - Configure Pipeline Parameters**
+
+Now, we need to find a way to parameterize the relative URL value used in the REST API call. To clearly understand what parts of the URL change and what parts remain constant, it is helpful to look at the full URL in a notepad first.
+
+The first part of the URL is the base URL, which we have already defined. The second part, which starts with v1, is also tied to the base URL. This represents version 1 of the API, and the search endpoint is the default value. These components of the URL never change when making the REST API search call. Similarly, the question mark (?) is fixed and does not change.
+
+The next part of the URL contains a parameter name, which is an actual value expected by the API. Here, we are passing the market name. This is the key part of the URL that changes dynamically, as it needs to be replaced with a different market name for each API request. The count parameter specifies how many results should be returned. Although the example shows 110, the maximum allowed value is 10, so we do not need to worry about this part for now. The remaining parameters—language set to English and format set to JSON—are constant and look fine.
+
+From this analysis, we can clearly see that the only changing value in the source relative URL is the market name.
+
+We already have a list of market names available from our dimension table. There is more than one market name in the source file—there are actually a large number of them. The query is running, and based on the data, there are approximately 1,664 distinct market names in total.
+
+Because of this large number, we cannot create pipeline parameters for each market name. Creating over a thousand pipeline parameters is not practical or manageable. So the next logical option is to use a metadata file.
+
+We are already familiar with metadata files from earlier work, where we used them to load data from HTTP web servers for reporting purposes. We have previously created two metadata files and understand their structure. This approach fits perfectly for this requirement.
+
+The key decision rule here is simple:
+
+If the value you are parameterizing has too many possible values, you should use a metadata-driven pipeline.
+
+If the value has only one or very few possible values, then a pipeline parameter is sufficient.
+
+In this case, the market name has thousands of values, so it should be handled through a metadata file. On the other hand, parameters like the result count (which will always be 10) are good candidates for pipeline parameters, since they are single, stable values. Even if they change slightly in the future, parameterizing them keeps the pipeline flexible and avoids hard-coding.
+
+Similarly, the result format, which is currently always JSON, can also be parameterized as a pipeline parameter because it has only one possible value at the moment.
+
+However, we cannot parameterize market names like “Kovilpatti” directly in the pipeline, because there are too many such values. Instead, we should store all market names in a metadata file, read that metadata during pipeline execution, and pass each market name dynamically to the Copy Data activity to make API requests.
+
+In the same way, the sink details—such as the data lake container name, folder name, and file name—can also be stored in the metadata file. Since the file name changes for each market, handling this dynamically through metadata makes the pipeline fully automated and eliminates manual intervention.
+
+By reading the metadata file and passing its values into the Copy Data activity, the pipeline can dynamically process each market without hard-coding anything. This makes the solution scalable, maintainable, and flexible.
+
+We will proceed with creating the metadata file in the next lesson.
+
+# **G) Demographics Data Ingestion - Create and Upload Metadata File**
+
+We have decided to create a metadata file to store the market name along with all three required parameters for the sink: the data lake container name, folder name, and file name. Since the data already exists in the SQL Server database, creating this parameter file is a very straightforward task.
+
+We already know the required values: the market name, the data lake container name, and the data lake folder name. For the file name, we can simply use the market name itself, because that aligns with how we plan to create the folder structure in the bronze layer. That is exactly what we have implemented.
+
+If you look at the sink mapping, you will notice that the file name is set as market_name.json. We are storing data from multiple sources into the bronze layer, and this particular dataset is related specifically to geo-location data. Therefore, it makes sense to include geo-location information in the metadata file itself.
+
+To make the structure clearer and more maintainable, we also include the bronze folder name in the metadata so that we can easily differentiate files related specifically to geo-location. To implement this, we quickly updated the metadata file by replacing all folder names from bronze to bronze/geolocation, ensuring that all geo-location-related data is stored under a dedicated folder in the Data Lake storage account.
+
+Using a simple tool like Notepad, we were able to make these updates very quickly and efficiently. Once the changes were done, the metadata file was saved.
+
+Next, we need to upload this metadata file into the same metadata folder in the Data Lake. Even though we are using the same Azure Data Factory, we have created two different containers in the Data Lake to differentiate between data ingested for reporting purposes and data ingested for the data lake. Despite this separation, it is best practice to keep all metadata files in a single metadata folder, so they can be reused easily by multiple developers in real-time projects.
+
+If you are working on a single project, it is always recommended to keep the metadata in one consolidated location rather than creating multiple folders, which can unnecessarily complicate the design and cause confusion later.
+
+The metadata file was first created on the local machine, and then uploaded to the Data Lake storage account. This is necessary because Azure Data Factory cannot read files directly from a local machine unless additional configuration is done, which is neither necessary nor relevant in this case.
+
+To read this metadata file in ADF, we will use a Lookup activity. Whenever we need to read data from a file or dataset inside ADF, the Lookup transformation is the correct choice. In the next section, we will configure the Lookup activity to read the metadata file and pass the values dynamically to the source and sink parameters of the Copy Data activity.
+
+Once this is configured, the pipeline should be able to load all geo-location data into the Data Lake storage very quickly.
+
+It is important to note that this is a one-time or infrequent ingestion. Population and geo-location data—such as latitude and longitude—do not change very often. In most cases, population data is updated only once every ten years. Because of this, this particular pipeline does not need to be scheduled. It can be run on an ad-hoc basis whenever there are changes in the source data.
+
+This pipeline serves as a simple and quick starting point for working with REST APIs. That is why we began with this example while building our data lake. As we move forward, we will ingest more relevant datasets that affect the business, such as pricing data and product data.
+
+We will continue in the next lesson by creating and configuring the Lookup transformation.
+
+# **H) Demographics Data Ingestion - Configure LOOKUP and FOREACH Activity**
+
+Let us now start by including the Lookup activity in the pipeline. First, search for the Lookup activity in the activities pane, then drag and drop it onto the pipeline canvas. This Lookup activity will be used to read the market names metadata file.
+
+Once the Lookup activity is added, go to its Settings tab. At this point, we do not yet have a dataset created for this metadata file, so we will quickly create one. Choose Azure Data Lake Storage Gen2 as the data store, since the metadata file already exists there and is stored in JSON format.
+
+Next, provide a logical and meaningful name for the dataset. For example, you can name it something like
+ds_adls_datalake_geolocation_marketnames_metadata.
+Select the appropriate Linked Service, which will point to the Data Lake Storage account. Even though multiple datasets may point to the same storage account, that is perfectly fine.
+
+For this dataset, we do not need to parameterize anything, because metadata files for this ingestion are not expected to change dynamically. So we can keep the dataset configuration static and proceed.
+
+Now that the dataset is created, it is successfully linked to the Lookup activity in the pipeline. Before running it, recall one important setting: we must uncheck the “First row only” option. If this option remains checked, the Lookup activity will fetch only a single row from the metadata file, which is not what we want. We need all rows.
+
+No other changes are required in the Lookup activity configuration. As we already know, the output of a Lookup activity always comes as an array.
+
+At this point, we can run a debug execution to quickly verify the Lookup output. Since the pipeline parameters have default values, we can use them as-is. After running the debug, we can see that the output of the Lookup is indeed an array, where each element contains the market name, container name, folder name, and file name coming from the metadata file.
+
+Since the output is an array, the next logical step is to process each element individually. To do this, we need to pass the Lookup output into a ForEach activity. So, add a ForEach activity to the pipeline and connect it to the output of the Lookup activity.
+
+Give the ForEach activity a meaningful name, such as Iterate Market Names, so it is clear that this loop is iterating through each market name from the metadata file.
+
+In the ForEach settings, we must connect the value array output of the Lookup activity to the Items field of the ForEach activity. Although the Lookup activity provides multiple outputs, we are only interested in the value array, because that is where the actual metadata records are stored.
+
+You will also notice that the Disable option needs to be unchecked. For some reason, this sometimes needs to be done twice before it actually gets disabled—this is just something to note, even though the reason is unclear.
+
+Now, inside the ForEach activity, we need to execute the Copy Data activity. To do this, we can either use the Edit activities option or drag the Copy Data activity into the ForEach container. In this case, we simply cut and paste the existing Copy Data activity into the ForEach loop.
+
+Next, we need to configure the values that will be passed dynamically into the Copy Data activity from the ForEach iteration. To make this easier, we can copy the existing REST API URL into Notepad so that we can clearly identify which parts of the URL need to be replaced dynamically and which parts can be reused as-is.
+
+Some parts of the URL will remain constant. Other parts must be replaced using:
+
+Values coming from the ForEach output (read from the metadata file)
+
+Values coming from pipeline parameters
+
+This will be handled using the Pipeline Expression Builder, where we will build the full URL using a string concatenation expression. Up to a certain point, the URL remains the same. After that, the market name is replaced using the ForEach output, and the count and format values are replaced using pipeline parameters.
+
+This process is fairly straightforward once we identify which values come from where. At this point, we have completed a good revision of how Lookup, ForEach, and Copy Data activities work together in a metadata-driven pipeline.
+
+We will implement this expression building and parameter replacement in detail in the next lesson.
+
+# **I) Demographics Data Ingestion - Pass Dataset Parameter Values From Metadata File**
+
+Now we can start forming our relative URL using the Pipeline Expression Builder. The first part of the search string is a constant value—it will not change for any request. So, we click on the Relative URL field and open the Expression Builder. As discussed earlier, we will use the concat() function to construct the full relative URL dynamically.
+
+The first search string remains the same for all requests, so we pass it directly as a constant value inside the concat() function. The second part of the URL, which is the market name, needs to come from the metadata file output. Since this value is being iterated inside the ForEach activity, we can access it using item() followed by the exact key name used in the metadata file.
+
+To ensure accuracy, we open the geolocation market names metadata file and check the exact key name used for the market name. The value is stored under the key market_name. We do not replace the actual market name value itself; instead, we reference the key that holds this value. We copy this key carefully and use it in the Expression Builder as item().market_name.
+
+Next, we return to the full URL structure in Notepad to identify the next section. After the market name, the next portion of the URL—up to count=—is again a constant string. This portion does not change across requests, so we add it directly to the concatenation expression as a fixed value.
+
+The next value is the result count, which is set to 10. While we could hard-code this value, we want to keep the pipeline as clean and flexible as possible. Therefore, we use the pipeline parameter created earlier for the REST API result count and concatenate it instead of hard-coding the number.
+
+Following this, the URL includes language=English. Since we do not expect the language to change, this part remains a constant. The final part of the relative URL is the format, which we have also parameterized as a pipeline parameter. By concatenating this value as well, the entire relative URL becomes fully dynamic, with no hard-coded values that may need changes later.
+
+At this point, the relative URL configuration is complete and correct.
+
+Next, we configure the sink dataset parameters. The container name comes directly from the metadata file, so we access it using item().data_lake_container_name. We intentionally use the term Data Lake here, because we are building the data lake layer, not the reporting layer of the analytical platform.
+
+The folder name also comes from the metadata file and is accessed through the ForEach activity using the corresponding key. Since the ForEach is looping through the metadata file read by the Lookup activity, all metadata values are available through item().
+
+The final sink parameter is the file name. We use the market name itself as the file name, which again comes from the metadata file. Since this value is already being used in both the source and sink configurations, there is no need to create an additional parameter for it.
+
+However, there is one important detail to address: the file name must end with .json. We cannot directly use the market name alone, so we use the concat() function again to append .json to the market name. The dot (.) is included explicitly in the expression, and the format value is taken from the pipeline parameter. Copying and reusing the concatenation logic helps avoid mistakes.
+
+With this, the sink configuration is complete.
+
+Now the pipeline is fully ready to load geolocation data for all markets into the bronze layer of the data lake. Before publishing, there is one final consideration. Since we have around 1,000+ market names, we do not want to process all of them in parallel. To control this, we set the batch count in the ForEach activity to 10, so that only ten markets are processed at a time before moving to the next batch.
+
+At this stage, the pipeline is complete and ready. We are dynamically making REST API requests, retrieving JSON responses that are not stored anywhere in the source system, and loading them into the bronze layer of the data lake.
+
+In the next lesson, we will debug the pipeline and verify that the data is being ingested correctly.
+
+# **J) Demographics Data Ingestion - Identifying and Fixing The Errors**
+
+Now we can debug the pipeline straight away. When the pipeline prompts for pipeline parameter values, we do not need to change anything, because all required parameters already have default values. So we simply proceed by using those defaults and run the pipeline.
+
+Our expectation is that the pipeline will load all the data into the bronze layer, specifically under the geolocation folder. The folder structure will be created automatically. Under the pricing data lake’s bronze layer, a geolocation folder should be created, and within that folder, a JSON file for each market name should be populated.
+
+Once the pipeline starts running, we wait for a moment. At this point, we need to cancel the wait option and observe the pipeline execution. The pipeline fails—but that is actually a good thing. Failures give us an opportunity to understand what went wrong and improve our implementation. In fact, this particular error turns out to be very interesting and even helps refresh some important concepts.
+
+This is the first time encountering this specific error. It turns out that there was a small mistake in the metadata file. As a standard practice, we copy the error message into Notepad so that we can review it calmly and clearly without getting overwhelmed by the UI. Expanding and formatting the error text helps us read it more easily.
+
+The error message clearly states that “pricing data lake contains invalid characters”, and it also highlights the exact invalid characters. Spending a little time carefully reading the error message gives us the clue we need. Although at first glance it may not seem obvious—because the pricing data lake definitely exists and was working earlier—the error becomes clearer once we inspect the value closely.
+
+The issue is related to the metadata file that was created. While creating the pricing data lake metadata file, extra characters were mistakenly included—specifically single quotes. The same issue appears in the folder name as well. These invalid characters cause the pipeline to fail once parameterization is applied, even though it worked earlier when values were hard-coded.
+
+To fix this, we directly update the metadata file. This is also a good opportunity to demonstrate how to use Find and Replace within the editor. Using Ctrl + F, we search for the single quotes and replace them with nothing. Clicking Replace All removes all the unwanted characters in one step.
+
+It is important to note that double quotes must remain, because they are required for valid JSON formatting. After removing the single quotes, the metadata file looks correct.
+
+With the issue fixed, we rerun the pipeline. At this stage, it is important to remember that simply reading the error message carefully—especially the part mentioning invalid characters—was enough to identify the root cause. The presence of extra single quotes around the pricing data lake value was the key clue.
+
+Now, after rerunning the pipeline with the corrected metadata file, the Copy Data activity starts successfully. Since the pipeline needs to process around 1,200 market names, it will take some time to complete. We allow the pipeline to continue running for a few minutes.
+
+Although this was expected to be the simplest ingestion, it still provided valuable learning. Errors are often the best teachers—without them, we would not gain these insights.
+
+Once the pipeline completes execution, we will review the run details in the next lesson to confirm that all market geolocation JSON files have been loaded successfully into the bronze layer.
+
+# **K) Demographics Data Ingestion - Identifying and Fixing User Errors**
+
+Before the pipeline completed, I did a quick check to see how the data was being loaded. At that point, I noticed something unexpected. The pipeline was creating strange file names inside the geolocation folder. The first part of the file name—the market name—looked correct, but after that, it was getting extended with the pipeline parameter value for the API result format. This clearly indicated that something in the code was not behaving as expected.
+
+Because of this, we needed to cancel the pipeline execution. Although this may feel like a setback, it is actually a very good thing. The more errors you see and debug during this course, the more confident and solid you will become with Azure Data Factory. I always try to share every error, whether it is something I already know or something I encounter for the first time. This particular issue was not something I expected, which made it even more interesting.
+
+The problem occurred while passing the data lake file name parameter. We used a concatenation expression where the market name was concatenated with the pipeline parameter for API result format. However, instead of replacing the parameter with its value properly, it was being appended as a literal string, which caused incorrect file names to be generated.
+
+If you look closely, you can identify the issue fairly quickly, although it is a bit complex at first glance. This is one of those errors that is absolutely worth spending time on, because it strengthens your understanding. Importantly, this is a user error, not a system issue.
+
+To explain this clearly, we used the same API result format parameter in the source configuration as well. I copied the expression from the source so you could compare both places. In the source relative URL, the parameter was used correctly. However, in the sink configuration, the parameter was mistakenly hard-coded inside the expression instead of being referenced properly as a pipeline parameter.
+
+In other words, the last parameter in both the source and sink expressions looked similar, but only the source was configured correctly. In the sink, because the pipeline parameter was not referenced properly, it was treated as a plain string, which is why the sink file name was getting created as
+marketname.<pipeline_parameter_name> instead of marketname.json.
+
+Since the files were created incorrectly, we deleted the specific folder that was generated during the failed run. This itself is a valuable learning experience—for you and for me as well.
+
+To fix the issue, we updated the sink configuration and replaced the incorrect code with the actual pipeline parameter reference. Once this correction was made, the file naming logic became correct.
+
+At this point, we also revisited the parallelism settings in the ForEach activity. Earlier, we had set the batch count to 10, which meant only ten market names were processed in parallel. Since the data volume for each market is very small—sometimes just a single line of JSON—we can safely increase the parallelism. I decided to increase the batch count to 50, which significantly reduces the overall runtime. Running 50 parallel Copy Data activities is completely fine for this small dataset.
+
+After making these changes, we debugged the pipeline again. There was no need to pass any parameter values, as defaults were sufficient. This time, after the first successful Copy Data execution, we quickly verified the output to ensure everything looked correct.
+
+Now, the files were being created properly with the correct naming convention:
+marketname.json. Everything looked good.
+
+We let the pipeline continue running until completion. At this stage, we have successfully loaded all market-wise geolocation JSON data into the bronze layer of the data lake, under the geolocation folder.
+
+This marks the successful completion of our first REST API ingestion using JSON. We have dynamically fetched data from an API, handled metadata-driven processing, debugged real-world errors, and loaded the data into the data lake correctly.
+
+Next, we will move on to another REST API in JSON format and continue building on this foundation.
