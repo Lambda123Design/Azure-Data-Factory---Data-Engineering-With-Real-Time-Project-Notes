@@ -307,6 +307,35 @@ This Repository contains my Notes of "Azure Data Factory - Data Engineering With
 
 **K) Demographics Data Ingestion - Identifying and Fixing User Errors**
 
+**XIII) Data Lake Bronze Layer Data Ingestion - Weather Data REST API**
+
+**A) Weather Data Ingestion Overview**
+
+**B) Weather Data Ingestion - Dynamic Metadata File Creation Configure Source**
+
+**C) Weather Data Ingestion - Dynamic Metadata File Creation Configure Source Schema**
+
+**D) Weather Data Ingestion - Dynamic Metadata File Creation FLATTEN Complex JSON**
+
+**E) Weather Data Ingestion - Dynamic Metadata File Config Additional Params and SINK**
+
+**F) Weather Data Ingestion - Dynamic Metadata File Creation & DATAFLOW Partitioning**
+
+**G) Weather Data Ingestion - Configure Source and Sink Datasets**
+
+**H) Weather Data Ingestion - Configure LOOKUP and FOREACH Activity**
+
+**I) Weather_Data_Ingestion-Configure_Pipeline_Parameters_and_Variables**
+
+**J) Weather Data Ingestion - Pass Dataset Parameter Values Using Pipeline Expression**
+
+**K) Weather Data Ingestion - Configure Dynamic Subfolder Creation in Sink Storage**
+
+**L) Weather Data Ingestion - Pipeline Debugging and Known Error on Activity Name**
+
+**M) Weather Data Ingestion - Additional Source Column on COPYDATA and Setup Trigger**
+
+
 
 
 
@@ -3868,3 +3897,492 @@ We let the pipeline continue running until completion. At this stage, we have su
 This marks the successful completion of our first REST API ingestion using JSON. We have dynamically fetched data from an API, handled metadata-driven processing, debugged real-world errors, and loaded the data into the data lake correctly.
 
 Next, we will move on to another REST API in JSON format and continue building on this foundation.
+
+# **XIII) Data Lake Bronze Layer Data Ingestion - Weather Data REST API**
+
+# **A) Weather Data Ingestion Overview**
+
+We have completed one REST API data ingestion earlier. Even though it was a REST API, we used the HTTP Linked Service to connect to the URL. We parameterized the market name and dynamically looped through each market, loading the data into the Bronze layer of the Data Lake.
+
+Now, we are going to work on another REST API to fetch weather data. This is again an open-source API, and we will be using it in our pipeline. First, we will quickly review the API URL to understand which values need to be passed dynamically. Based on that, we will create a pipeline to load weather data for all market names.
+
+Starting with the first part of the Weather API, there is not much difference in structure. This API uses a specific version, and instead of using a search endpoint, it uses an archive endpoint because we are trying to retrieve historical weather data. As discussed earlier, after the question mark (?) in the URL, we need to identify the list of query parameters that must be passed and understand how to dynamically construct them within the pipeline.
+
+The first required parameter is latitude. This API requires geographical coordinates rather than market names. It does not directly accept market names as input. However, in our project design, the output of the previous ingestion can be reused as input for the next request.
+
+If you look at the output files generated during the geocoding ingestion, each file already contains the latitude and longitude information for its respective market name. When you open one of these files, you can clearly see the latitude and longitude values. However, this information currently exists across multiple JSON files.
+
+Now, we need to consolidate these latitude and longitude values into a single place so that they can be reused for the weather data ingestion. This consolidation is completely feasible and does not pose any major challenges.
+
+The new weather API requires latitude and longitude as mandatory input parameters. In addition to that, it also asks for a start date and an end date, specifying the period for which historical weather data is required. Since the data volume can be quite large, the plan is to retrieve data month by month. This approach will improve performance and speed.
+
+By fetching data monthly, we can retrieve an entire year’s data using 12 files, instead of creating too many small daily files. Creating data on a daily basis would result in a large number of small files, which is not ideal. Therefore, a monthly approach is preferred as it is faster and more efficient.
+
+Another important parameter is the list of weather variables (columns) that we want to include in the response. In our case, we are interested in:
+
+Maximum temperature at 2 meters
+
+Minimum temperature at 2 meters
+
+Rainfall recorded for that specific market on a given day
+
+The final parameter is time zone. Since this API supports global weather data, we need to ensure it works correctly for markets in India. Setting the time zone to auto ensures that the API automatically adjusts based on the location.
+
+So overall, we need to dynamically construct the weather API URL within our data ingestion pipeline. This URL must be built for each market, using latitude, longitude, date range, required weather parameters, and time zone.
+
+Before developing the final pipeline, we need to perform some preparatory tasks. Specifically, we need latitude and longitude values for all market names we are interested in. These values already exist as output from our previous geocoding ingestion, stored in the Bronze layer of the Data Lake.
+
+To achieve this, we will quickly develop a pipeline in Work Lab that reads all the geocoding output files from the Bronze layer. From each file, we will extract the latitude and longitude values associated with each market name.
+
+Once extracted, we will consolidate this information into a single dataset. This consolidated dataset will then act as metadata for driving the weather data ingestion process.
+
+In summary, this process will be completed in two steps:
+
+Read and consolidate latitude and longitude information for all market names from the geocoding ingestion output.
+
+Use this consolidated metadata to dynamically call the weather API and ingest the weather data into the Bronze layer of the Data Lake.
+
+# **B) Weather Data Ingestion - Dynamic Metadata File Creation Configure Source**
+
+So, first, we need to retrieve the latitude and longitude information that we previously loaded as part of the geolocation data ingestion. This information will be used to load weather data from the new weather API that we have identified.
+
+To achieve this, we are going to quickly develop Lab 5 Data Flow under the Working Labs section. The purpose of this data flow is to extract only the latitude and longitude information from the geolocation data. We will be transforming this data into a flattened format.
+
+Although the geolocation data will eventually be loaded into the Silver layer of the Data Lake, this step is mainly for practice and preparation. It demonstrates the best practice for reading complex JSON data and flattening it before moving into the Silver layer. Since we only need this data for metadata purposes, we are doing this work inside the Working Labs.
+
+The latitude and longitude information is not part of our final output. It is only required to drive the weather API ingestion. Therefore, we are creating a quick data flow just to understand how to read a JSON file and flatten the structure.
+
+Previously, we did not properly organize the Working Labs folder under Data Flows. We had created a sample data flow while loading a dimension table, but it was not well structured. Now, we are placing everything under Working Labs, and later it can be moved or cleaned up as needed.
+
+Next, we create a new data flow specifically to transform the geolocation data. The goal of this data flow is very clear: extract only latitude and longitude from the geolocation JSON file. This information is required by the new weather API that we will use to load weather data.
+
+For this data flow, we need two datasets:
+
+One dataset for reading the geolocation data
+
+Another dataset for writing the transformed latitude and longitude output
+
+So, again, under the Working Labs area, we quickly create two new datasets. For reading the geolocation data, the dataset can point to any one of the source JSON files, which is fine for now. At this stage, our requirement is to read all JSON files and identify the latitude and longitude information.
+
+To save time, we will clone an existing dataset instead of creating a new one from scratch. Previously, we used this dataset to load similar data, so cloning makes the process quicker. We also move this dataset into the Working Labs folder to avoid any confusion or dependency issues.
+
+At the same time, we make sure that Lab 5 is opened and active. Working with too many datasets at once can be confusing, so keeping everything focused within a single lab helps. We also retain the same parameters so that values can be passed dynamically, allowing us to read all files from the source folder.
+
+Once the source dataset is ready, we then create an output dataset to store the transformed latitude and longitude values produced by the data flow. This will be done later during the transformation stage. We strictly follow the naming conventions used across the project.
+
+We intentionally avoid using existing or inconsistent names. Since this code will eventually be deployed to higher environments using a CI/CD pipeline, naming conventions are extremely important. If naming standards are not followed, the CI/CD pipeline may fail. That is why everything is kept very clean and structured.
+
+At this point, our source dataset for reading geolocation JSON files is ready. This is the first major task completed.
+
+Next, we enable Data Flow Debug so that we can see the data coming from the JSON files. We go to the Source Settings, and for now, there is nothing additional that needs to be configured.
+
+However, in the Projection tab, we notice that no column names are visible. This is because the schema has not yet been imported from the source file. To resolve this, we need to import the schema so that the projection columns appear in the data flow.
+
+Once the schema is imported, we will be able to explore the data and see exactly what information is coming through from the geolocation JSON files. We will continue analyzing and transforming this data in the next lesson.
+
+# **C) Weather Data Ingestion - Dynamic Metadata File Creation Configure Source Schema**
+
+We start by importing the schema for the geolocation files that we have already loaded. We select one file that has the correct path and valid data. Since everything is parameterized, importing the schema from a single file is sufficient.
+
+When we import the schema from the connection store, it asks for all the required values. The container name is Pricing Data Lake, and the folder path is branch/geolocation. The final input required is the file name. Since the structure is identical across all files, importing the schema from one file will apply to all geolocation files.
+
+Once the schema is imported, all the data inside the JSON file becomes available in the data flow. This is the first time we are encountering an object data type, because the JSON structure is slightly complex. It is not highly complex, but it is more structured than a simple flat JSON. Compared to other JSON files that we will work with later, this one is relatively simple.
+
+If we take a closer look at the structure, the actual values are stored inside an array called results. Within this array, the data is stored as a map element. To reference specific fields such as latitude and longitude, we need to use:
+
+results.latitude
+
+results.longitude
+
+This is how we access those values in the data flow.
+
+Once the schema is imported, we can check the Projection tab and see that all column names are now visible. All the fields exist under the results array. When we move to the Data Preview, the data should be displayed accordingly.
+
+At this point, an error occurs stating that no value was provided for the parameter dst_prm_data_lake_container_name. This happens because we are using parameters in the dataset but have not yet passed values to those parameters. Since the parameters are not populated, the data flow is unable to connect to the source and retrieve the data.
+
+We have already learned how to handle this. To pass parameter values, we go to the Debug Settings after enabling Data Flow Debug. Here, all parameters used in the dataset and the data flow are displayed.
+
+In this case, we are not using data flow–level parameters. We manually provide the values:
+
+Container name: Pricing Data Lake
+
+Folder path: branch/geolocation
+
+File name: we can reuse the existing file name that was previously copied
+
+After verifying the folder structure and confirming that the path is correct, we apply the values. This allows the data preview to load successfully.
+
+At this stage, it is very important to continuously use the Data Preview option. Since we are working with new transformations and a new data structure, the preview helps us understand how the data is flowing and how it can be converted.
+
+This may be the first time we are seeing data displayed in an array format. The results field is an array that holds the complete data. To view the actual records, we need to expand the array in the data preview.
+
+Once expanded, we can see fields such as:
+
+results.id
+
+results.name
+
+results.latitude
+
+results.longitude
+
+and other geolocation attributes captured earlier
+
+Our primary goal is to extract latitude and longitude. However, we also need to include administrative information such as admin1 and admin2. If we only store latitude and longitude, it will be difficult to identify which market the data belongs to when extracting weather information later.
+
+Therefore, along with latitude and longitude, we will include some textual attributes in the sink. This additional context will help us reuse the data while passing inputs to the weather API.
+
+In the next lesson, we will explore how to extract and flatten this information from the complex data structure and transform it into a usable format for the weather data ingestion.
+
+# **D) Weather Data Ingestion - Dynamic Metadata File Creation FLATTEN Complex JSON**
+
+Now we are going to extract information from the complex data type present in the geolocation JSON file. To do this, we need to use a new transformation that we have not used before. This transformation is called Flatten, and it is specifically designed to flatten complex JSON structures.
+
+The Flatten transformation is available with the same name, and we will use it to flatten the complex data type in our JSON file. The two configuration options that we are particularly interested in here are Unroll By and Unroll Root.
+
+As soon as we select the Flatten transformation, it displays the available complex data types present in the incoming data. In our case, the complex data type is results, which is an array.
+
+We set Unroll By to results, and the Unroll Root is also set to results. At this point, the data preview may show only two records: one coming from the results array and another from the generation timestamp, which is a normal data type.
+
+Once these settings are applied, the Flatten transformation splits all the fields inside the results array into individual columns. To make this effective, we reset the input columns. As soon as we do that, we can see that the complex array structure has been converted into simple, individual column values.
+
+This approach works perfectly for a single-level array. If the JSON structure contains multiple nested arrays, we would need to use multiple Flatten transformations to fully flatten the data.
+
+When we check the Data Preview at this stage, the data is displayed in a completely flattened format. The complex results array no longer exists; instead, all values appear as plain columns.
+
+At the moment, only one market name is displayed because we have mapped only one source file. We will update this configuration later to include all geolocation files.
+
+The next step is to map the required fields from this flattened data into the sink file. Essentially, we are dynamically generating a metadata file. Since the data volume is large and manual creation is not feasible, we are using Azure Data Factory to automate the entire process.
+
+Now, let us review the columns:
+
+The name field represents the market name
+
+The ID field comes from the geolocation API, but we do not need it, so we remove it
+
+The name column is retained and renamed to market_name
+
+Latitude and Longitude are the most critical fields, so we definitely keep them
+
+We do not need fields such as elevation and feature code, so those are removed. We decide to keep the country code after latitude and longitude.
+
+This metadata file will be used later in the actual weather ingestion pipeline. The Weather API does not accept market names as input; instead, it requires latitude, longitude, and date range. That is why this metadata file is essential.
+
+Next, we evaluate the remaining fields:
+
+Admin codes are internal to the geolocation API and are not required
+
+Country name is useful, so we keep it
+
+Admin1 represents the state name
+
+Admin2 represents the district name
+
+We keep country name, state name, and district name, as these fields help resolve ambiguity if the same market name exists in multiple states or districts.
+
+Fields such as timezone, population, country ID, and admin ID values are not required, so they are excluded.
+
+After completing the Select (mapping) transformation, we check the data preview again. Now, only the columns required to build the metadata file are present, and the output looks clean and correct.
+
+At this stage, we plan to store this output in a JSON file, but we temporarily hold off on writing it. This is because we still need to add three more parameters that are required to fully build our pipeline.
+
+It is better to include these parameters now rather than adding them later. Ultimately, we are trying to create a metadata file similar to the market name metadata file that was previously created manually. That manual metadata file contained fields such as:
+
+Market name
+
+Latitude
+
+Longitude
+
+Data lake container name
+
+Data lake folder name
+
+If we include the data lake container name and data lake folder name here itself, it will make the pipeline implementation much easier later.
+
+At this point, we are still not working on the actual weather data ingestion pipeline. Our focus is only on dynamically generating the metadata file that will drive the weather ingestion process.
+
+Now we face a small challenge. So far, the source dataset is pointing to only one geolocation file. However, in reality, we need to process all geolocation files available under the geolocation folder.
+
+To do this, we need to set the geolocation folder as the root path and use a wildcard file path so that all files inside this folder are read automatically. We will configure this wildcard logic in the next lesson.
+
+# **E) Weather Data Ingestion - Dynamic Metadata File Config Additional Params and SINK**
+
+Let’s first take a quick look at the source data that we are trying to read. This data is stored under the geolocation folder and exists as multiple JSON files. At the moment, our source dataset is parameterized, but it is still pointing to only one source file, based on the value we provided in the debug settings.
+
+However, our requirement is to read all geolocation files, because we need to extract latitude and longitude information for every market. This is necessary since we will later retrieve weather information for all of these markets. Therefore, we need to configure the source to read all files instead of just one.
+
+To achieve this, we use one of the very useful features available in Azure Data Factory Data Flow. In the Source Settings, we leave everything as it is and move to the Source Options section. Here, we can use the wildcard path option.
+
+The wildcard path does not require the container name. It only needs the folder path and file pattern. In our case, the folder path is branch/geolocation. Under this folder, all files are JSON files, so we use a wildcard pattern of *.json.
+
+By specifying branch/geolocation/*.json, the data flow will now attempt to read all JSON files present in that folder instead of a single file.
+
+Once this configuration is done, we quickly validate it using the Data Preview option. We click the refresh button to ensure that the settings are working correctly. The preview confirms that data from all market files is being read and displayed under the complex data type.
+
+This is expected behavior, because the data is still in its original structure. However, we have already applied the Flatten transformation, and we have identified the required columns that need to be included in our metadata file.
+
+In addition to the existing columns, we now want to include three more fields that were present in the previous metadata file. These include:
+
+Data Lake container name
+
+Data Lake folder name
+
+Including these fields here will allow us to generate a complete metadata file that can be directly used in the weather data ingestion pipeline.
+
+The idea is to generate all required metadata in a single automated step, so that we can reuse this file when calling the weather REST API. This approach saves a lot of manual effort and ensures consistency.
+
+At this stage, the data volume we are working with is quite large. Because of that, automation becomes critical. This pipeline is not intended to be deployed to production. Its purpose is to speed up development and help us generate metadata quickly and reliably.
+
+Before writing the output, we add two more columns using a Derived Column transformation. These additional metadata parameters will be used later in the downstream pipeline.
+
+The first derived column is data_lake_container_name, and its value is set to pricing_data_lake.
+
+The second derived column is data_lake_folder_name. We verify the correct value, and in this case, it is set to branch/weather_data, because the purpose of this metadata file is to load weather data into the Data Lake.
+
+Next, we configure the Sink. The sink points directly to the metadata folder, because this entire data flow has been created specifically to generate metadata.
+
+In the Sink settings, we create a new dataset. This dataset uses Azure Data Lake Storage Gen2 as the storage type and stores the output in JSON format.
+
+We ensure that the dataset name aligns with Lab 5 naming conventions, so that it remains easy to track and reference later. Consistent naming helps us understand which pipeline or lab the dataset belongs to.
+
+For the file name, we follow the same pattern used earlier. Previously, we had a file named something like market_names.json. Since this metadata is now for weather data and contains geocoordinates, we rename the file accordingly.
+
+The new file name reflects its purpose clearly. It contains market names, but more importantly, it includes geo-coordinates, which are the key inputs for the weather API.
+
+At this point, when the data flow attempts to validate the sink schema, it throws an error indicating that the target file does not exist. This is expected behavior, because the file has not yet been created.
+
+We acknowledge this error and proceed. The pipeline should still allow us to publish successfully. Any remaining errors or validation issues will be reviewed and addressed in the next lesson.
+
+# **F) Weather Data Ingestion - Dynamic Metadata File Creation & DATAFLOW Partitioning**
+
+The error we encountered is very straightforward. I initially assumed that string values could be passed without single quotes, but in Data Flow expressions, string literals must always be enclosed in single quotes. If we do not do this, the expression will fail.
+
+This happens because Data Flow expressions use a different execution engine compared to pipeline expressions. Once the single quotes are added correctly, the validation succeeds and everything looks good.
+
+With that fixed, we go ahead and publish the changes.
+
+Now, we quickly develop a pipeline to run this data flow under the Working Labs. We create a new pipeline and name it based on the data flow. Since the data flow name starts with DF, we replace it with PL to follow naming conventions.
+So the pipeline name becomes something like PL_Trans_Geolocation_JSON_Lab5.
+
+At this point, many panels may be expanded, which can be confusing. To keep things clean, we close unnecessary tabs and then drag the DF_Trans_Geolocation data flow into the pipeline.
+
+The pipeline will again ask for dataset parameter values. That is completely fine. We can hardcode them because this pipeline is not meant for final production delivery. This pipeline is only used to generate the metadata file required for ingesting weather data.
+
+We provide the folder name as bronze/geolocation. For the file name, even though we have configured a wildcard path inside the data flow, the dataset still expects a value. So we provide any one valid file name. The actual reading of all files is handled by the wildcard configuration inside the data flow.
+
+We perform a quick validation, confirm that everything looks good, and then publish and run the pipeline.
+
+This time, we are dynamically generating the metadata file. Creating this kind of metadata manually is practically impossible. Situations like this will come up in real projects as well. Instead of trying to manually create metadata, it is always better to build a quick ADF pipeline to generate it automatically.
+
+This pipeline does not need to be deployed to production, but the metadata file it produces must be deployed to production. That is the key objective of this exercise.
+
+The pipeline runs successfully, so we go ahead and refresh the metadata folder to check the output.
+
+We see some files that were already created earlier. Along with those, we now see new metadata files. Initially, this may look unexpected, but when we inspect any one of the JSON files, the content looks correct. It includes latitude, longitude, data lake container name, and all required fields.
+
+However, we notice that the output is split into multiple files instead of a single file.
+
+This behavior is expected. Data Flow runs on an Apache Spark cluster, which uses distributed processing. The compute cluster consists of multiple machines, and each machine processes a portion of the source data. Each machine then writes its output independently, resulting in multiple files.
+
+This is controlled by the partitioning behavior of the Spark engine. By default, Data Flow uses current partitioning, which leads to multiple output files.
+
+If we want to generate a single output file, we must change the Sink settings. There is an option called “Output to single file”. When we enable this option, Data Flow automatically changes the partitioning to single partition.
+
+At this point, we can also specify the output file name. Even though we provided a file name in the sink dataset earlier, that name is ignored when the data flow runs in clustered mode. In cluster mode, file names are automatically generated by Spark unless we explicitly force single-file output.
+
+Before re-running the pipeline, we delete the previously generated multiple files. While lookup activities can technically read files using wildcard paths, metadata files should ideally be maintained as a single file for better control and simplicity.
+
+Now, with the sink configured for single-file output, we run the pipeline again.
+
+This time, the pipeline completes successfully and generates only one metadata file in the metadata folder.
+
+When we open and inspect this file, everything looks correct. The structure is clean, and all required metadata fields are present.
+
+Now, we can confidently use this metadata file as the input to build the Weather Data REST API ingestion pipeline.
+
+At this point, the complexity level has increased significantly, and that is actually a good thing. As long as you are able to follow everything happening here, it means your understanding is solid. If anything feels confusing, go back and revisit the components we have worked on so far. Once you connect all the pieces, everything will start to make sense.
+
+With the metadata file ready, we are now set to begin building the weather data ingestion pipeline.
+
+# **G) Weather Data Ingestion - Configure Source and Sink Datasets**
+
+Now let’s start by creating the Linked Service in Azure Data Factory.
+
+First, we need the base URL. I may have mentioned earlier that we would be using a REST API this time. However, please excuse the confusion here. Although we are making REST-style requests, the historical weather APIs are not working with the REST data store in Azure Data Factory.
+
+Because of this limitation, we still need to use the HTTP data store to fetch the data. We are not downloading files directly; instead, we are making REST API requests using the HTTP connector to retrieve the data from the API.
+
+So we create a new HTTP Linked Service and name it something like http_weather_source, and we provide the base URL.
+
+Next, we select the Integration Runtime. This is the execution engine that runs all of our ADF pipelines, so it’s important to understand its role.
+
+For authentication, we choose Anonymous, since this is an open-source API. We then click Test Connection, confirm that the connection is successful, and create the Linked Service. After that, we publish the changes.
+
+The next step is to create the source dataset for the weather data. We go to the Author section and start creating a new dataset.
+
+Again, this dataset will be based on the HTTP connector. Even though we are making REST API requests, ADF does not support this API directly using the REST data store, so we use HTTP instead.
+
+We select the Linked Service we just created for weather data. We do not provide the relative URL at design time, because we want to parameterize it and pass the actual URL dynamically at runtime.
+
+We quickly create the source dataset and add a parameter named something like dst_prm_relative_url. By now, some of these parameter names should feel familiar. Repeating these patterns is actually beneficial—when you become a data engineer, you will be doing these same steps repeatedly in real projects.
+
+With the source dataset created, we move on to creating the sink dataset.
+
+This new dataset will store the weather data in Azure Data Lake Storage Gen2, inside the Bronze layer. The file format will be JSON.
+
+We follow the standard naming conventions for the dataset name, making it clear that it represents weather data stored in the Bronze layer.
+
+Although both Linked Services might technically work, we explicitly choose the Data Lake Linked Service. This is important because, in production environments, the Data Lake storage account is usually different from other storage accounts, and this separation becomes critical during deployment.
+
+For the file system, we do not hardcode any values. As usual, we parameterize everything. We create three dataset parameters:
+
+Data lake container name
+
+Data lake folder name
+
+Data lake file name
+
+Once the parameters are created, we map them to the appropriate connection properties in the dataset.
+
+At this point, both the source dataset and the sink dataset are ready.
+
+With these components in place, we are now ready to start developing the pipeline that will load weather data into the Bronze layer of the Data Lake. We will begin building that pipeline in the next lesson.
+
+# **H) Weather Data Ingestion - Configure LOOKUP and FOREACH Activity**
+
+We will create a new ingest pipeline under the ingest folder and follow proper naming conventions. Naming conventions are extremely important for keeping the project maintainable, especially when working with huge volumes of data. If naming and structure are not clean, at some point in the course you may get stuck and find it difficult to proceed further. That is why consistency and clarity in naming are very critical from the beginning.
+
+In this pipeline, we are going to ingest weather data from the EPA into the Bronze layer of our data lake. As usual, we will use the Copy Data activity, because we are not transforming or changing the structure of the source file. The activity can be named something like Copy Data – Weather Details.
+
+Next, go to the Source section of the Copy Data activity. Search for the dataset that contains the string weather, so you can select the HTTP source weather dataset. At this stage, it will ask for the Relative URL path for testing purposes. For now, copy the required part of the actual API URL—from the starting point up to the end—and paste it here. Later, we will parameterize this value using the metadata file that we already created.
+
+Then move to the Sink section and search using the string weather to select your ADLS dataset. It will ask for the container name and sink path. This will point to the Pricing Data Lake, which is where we created our new data lake. For now, the folder name will be bronze. For testing purposes, we will manually pass an actual market name as the file name. In this example, the hometown name Kovilpatti.json is used.
+
+Before parameterizing everything using the metadata file, we will do a quick debug run to make sure the pipeline works correctly. The pipeline should run very quickly. Once it succeeds, we will check the data lake to confirm that the new JSON file has been created. The file may appear directly inside the bronze folder rather than a subfolder. There may also be an older file present, such as one created earlier for geolocation data, which can be deleted to avoid confusion.
+
+Open the newly created file and inspect its contents. You can see that the weather information is being fetched correctly. The data includes details such as temperature and rainfall for each market on a daily basis for a month. The API response is very fast, and the data is returned correctly, which confirms that the setup is working as expected.
+
+Now that the basic pipeline is validated, we can start parameterizing the dataset values using the metadata file. To do this, we first need to read the metadata file. We will add a Lookup activity again. Since we are reusing the same activities repeatedly, this repetition helps strengthen your understanding and skills.
+
+Create a new Lookup activity, for example Lookup – Read Weather Metadata Files. The source will be ADLS Gen2, and the file type will be JSON. At this point, the metadata dataset may not have been created earlier because the pipeline was first built to verify functionality. Now we will follow standard naming conventions for metadata datasets as well, such as RDS_ADLS_JSON_Weather_Metadata.
+
+You can use either Landing or Data Lake linked services, as both will point to the ADF metadata container. Inside that container, select the metadata file that we created dynamically earlier. This metadata file is already structured properly, which is very useful.
+
+In the Lookup activity settings, make sure to uncheck the “First row only” option, because we want to read all rows. No other special options are required. The output of this Lookup activity will be an array.
+
+Since the Lookup output is an array, we need to pass it into a ForEach activity. This is exactly what we have learned before. We are replicating the same ingestion logic multiple times—once for each metadata entry. In the ForEach activity, set the Items value to the Lookup output array.
+
+If the Lookup output is not visible initially, make sure the Lookup activity is properly connected to the ForEach activity. Once connected, you will see the value array, which will act as the input source for the ForEach loop.
+
+Next, move the Copy Data activity inside the ForEach loop. Cut the Copy Data activity and paste it inside the ForEach. This allows the pipeline to execute the ingestion logic dynamically for each metadata record.
+
+At this point, the pipeline structure is complete. The remaining task is to pass the source and sink dataset parameters dynamically from the metadata using expressions like @item(). This parameterization will be handled in the next lesson.
+
+# **I) Weather_Data_Ingestion-Configure_Pipeline_Parameters_and_Variables**
+
+Transcript Not Available
+
+# **J) Weather Data Ingestion - Pass Dataset Parameter Values Using Pipeline Expression**
+
+Transcript Not Available
+
+# **K) Weather Data Ingestion - Configure Dynamic Subfolder Creation in Sink Storage**
+
+We have provided the data lake container name as Pricing Data Lake and the folder name as bronze/weather_data. When the pipeline runs, it will create an additional folder called weather_data, and inside that folder it will store the weather files in the same structure that we used earlier for the geolocation data—one file per market name.
+
+At the moment, this setup works only for one month of data. However, our requirement is to schedule the pipeline for an entire year. If we run the pipeline again for a different month, for example from 2023-02-01 to 2023-02-28, the pipeline will overwrite the existing files in the bronze layer. This happens because we are not changing the folder name dynamically for each month. To prevent overwriting previous data, we need to enhance the pipeline logic.
+
+To solve this, we need to introduce an additional subfolder for each month. For example, we can create a folder like 202301 to represent January 2023. When loading data, the pipeline should create a monthly subfolder inside the weather_data folder, so that each month’s data is stored separately. This ensures that data from previous months is preserved and not overwritten.
+
+To implement this, we go back to the pipeline level and create a new pipeline variable. This variable will hold the weather month value. We name the variable something like pipeline_variable_weather_month, and its type will be string. The value of this variable will be derived from the pipeline parameter start date.
+
+We only need the year and month format for the folder name, so we use the formatDateTime function. We pass the pipeline start date and format it as yyyyMM. This variable will then be reused in the sink folder path so that a new folder is created for each month automatically.
+
+Now, instead of hardcoding the sink folder name, we modify it using concatenation. Earlier, the folder name was coming directly from the metadata file, something like bronze/weather_data. We remove the static value and replace it with a concat expression.
+
+The concatenation logic includes three parts:
+
+The root folder name coming from the metadata file (for example, item().data_lake_folder_name)
+
+A forward slash /
+
+The weather month variable that we just created
+
+While doing this, we realize that the metadata folder name did not originally include a trailing slash. So we add the forward slash explicitly in the concatenation to ensure the path is formed correctly. This guarantees that every month’s data lands in a separate folder under weather_data/yyyyMM.
+
+With this approach, the structure becomes consistent. Inside weather_data, each month gets its own folder, and inside each monthly folder, there will be one JSON file per market. This prevents overwriting and keeps historical data intact.
+
+Next, we also ensure that the output file format is parameterized. We create a pipeline parameter called something like pipeline_parameter_sink_output_format and set its value to json. This way, if the format ever changes in the future, we only need to update it in one place.
+
+In the Copy Data activity sink file name, we again use concatenation. The file name is built using:
+
+The market name coming from the metadata file
+
+A dot .
+
+The output format parameter (json)
+
+This results in filenames like Kovilpatti.json. This time, we are careful not to repeat the earlier mistake of missing quotes around string values. Everything is properly formatted and validated.
+
+Once all expressions look correct, we publish the changes. Before scheduling the pipeline for an entire year, we decide to run it for one month to validate the logic.
+
+During validation, we notice that the weather month variable contains extra trailing spaces. We quickly inspect the Set Variable – Weather Month activity and open its settings. The formatDateTime expression looks correct, but there may have been an accidental space entered earlier. We correct the expression and make sure the format is exactly yyyyMM.
+
+After fixing this, the variable value looks clean and correct. We publish the changes again. Now the pipeline is ready to run for a single month without overwriting data.
+
+In the next lesson, we will run the pipeline for one month to confirm that everything works as expected before scheduling it to run automatically for an entire year.
+
+# **L) Weather Data Ingestion - Pipeline Debugging and Known Error on Activity Name**
+
+Let us start running the pipeline. While starting the run, we encounter a strange error. This is one of those horrible pipeline errors that can occur in any data factory pipeline. The tricky part is that although the root cause is very simple, it is not obvious from the error message itself, and you usually cannot identify the issue just by looking at the error details.
+
+This is an important precaution to keep in mind. In this case, the fix is very simple. When setting the weather month variable, an extra space was accidentally included in the value. That small additional space is the actual root cause of the failure. Because of this, the pipeline is not even allowed to start execution.
+
+So whenever you face this kind of error, always check your pipeline variables, parameter values, and naming conventions carefully. In most cases, the issue is not with your logic or code but with unexpected spaces or formatting issues in variable values. Since ADF performs validations before running the pipeline, it fails during validation itself and does not proceed further.
+
+After fixing the extra space issue, we proceed to run the pipeline again. This time, we plan to run it for one month of data only, before executing it end-to-end for a longer duration. This is a good practice to validate the pipeline behavior incrementally.
+
+We copy the required datetime values and pass them as parameters. The pipeline is configured to run from 2023-01-01 to 2023-01-31. This allows us to load one complete month of weather data and confirm that everything works as expected before scaling it further.
+
+Once the pipeline starts running, it takes some time to complete. The reason for this is the volume of data involved. We have approximately 1,200 market names, and for each market, the pipeline needs to fetch 31 days of weather information from the API. This results in a significant number of API calls and data writes.
+
+Because of this, we allow the pipeline to continue running until it completes successfully. Once the pipeline finishes execution without errors, we can be confident that the logic is working correctly.
+
+With this successful run, we are ready to proceed further. In the next lesson, we will continue after the pipeline has completed successfully and move ahead with the next steps.
+
+# **M) Weather Data Ingestion - Additional Source Column on COPYDATA and Setup Trigger**
+
+The weather data ingestion pipeline is running fine and ingesting the data correctly, but there is one important change that I forgot to implement. We will make that change now and then proceed to schedule the pipeline using a scheduler.
+
+The missing piece is that the market name is not included in the response file. The weather API response does not return the market name because the API fetches data using latitude and longitude. However, we already have the market name available in our metadata file, so we can easily include it in the final output.
+
+To fix this, we open the bronze layer weather data ingestion pipeline. This is also a good opportunity to learn a new technique—how to include additional columns directly in the Copy Data activity source. Instead of modifying the API response, we enrich the data during ingestion itself.
+
+In the sink, we are already passing values dynamically from the metadata file. We can use the same approach in the source by adding an additional column. At the bottom of the source settings, there is an option called Additional Columns. This allows us to dynamically derive new columns and add them to the output.
+
+Here, we add a new column called market_name. For the value, we use Add Dynamic Content. Since the Copy Data activity is inside a ForEach loop, we already have access to the metadata fields. We can simply use item().market_name from the metadata file. This ensures that the market name is included in every output file, making it much easier to reference in later layers.
+
+Apart from this additional column, nothing else in the source settings needs to be changed. There are other default options such as file name and file path that can also be added, but we do not need them for this use case. Our requirement is only to include the market name.
+
+Once this is done, if we check the mapping, we can see that the market name is now included in the sink output. Earlier, this column was missing, and it was a good catch to notice it at this stage. We publish the changes.
+
+Now we move on to setting up the tumbling window trigger. Since we want to load historical weather data month by month, a tumbling window trigger is the best choice. This allows us to process fixed time windows sequentially without overlap.
+
+We create a new trigger and name it something like Weather Monthly Load. The trigger type is Tumbling Window. Our pricing data starts from January 2020, so we set the trigger start date as January 1st, 2020, at 12:00 AM to ensure the full day is included.
+
+The frequency is set to 1 month, meaning the pipeline will run once per month. We also define an end date, which we set to December 31st, 2023, since that is the latest data we want to ingest. The time is again set to 12:00 AM.
+
+For concurrency, we set the value to 1. This is important because the data volume is large, and each monthly load is heavy. Running multiple months in parallel is unnecessary and could impact performance.
+
+Once we confirm the trigger settings, we proceed. The trigger now asks for pipeline parameter values. We already know how this works. The tumbling window trigger automatically provides the window start time and window end time, which we map to the pipeline’s start date and end date parameters. The file format parameter is set to JSON.
+
+Before publishing, we go back to the bronze layer and delete the previously loaded January 2020 data, because that data does not include the market name. Since having the market name is crucial for downstream transformations and merges, it is better to reload everything cleanly using the trigger.
+
+While setting the trigger, we briefly encounter a range error related to invalid time values. This happens occasionally due to time formatting issues. We simply reset the start and end times, verify them again, and proceed.
+
+After fixing the issue, we publish the pipeline and the trigger successfully. The error disappears, and the tumbling window trigger starts running automatically.
+
+At this point, the trigger will load one year (and more) worth of weather data, month by month, into the bronze layer, with each month stored in its own folder and each file containing the market name.
+
+With this complete, the next task is to transform the bronze weather data into the silver layer. The weather data is still in a complex nested JSON structure, so we will need to flatten it, similar to what we did for the geocoding data. That transformation will be covered in the next section.
