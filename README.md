@@ -335,6 +335,20 @@ This Repository contains my Notes of "Azure Data Factory - Data Engineering With
 
 **M) Weather Data Ingestion - Additional Source Column on COPYDATA and Setup Trigger**
 
+**XIV) Data Lake Silver Layer Data Transformation - Demographics Data**
+
+**A) Demographics Data Transformation - Configure Source and Sink Datasets**
+
+**B) Demographics Data Transformation DATAFLOW Source Wildcard Paths Configuration**
+
+**C) Demographics Data Transformation DATAFLOW - FLATTEN Complex JSON Structure**
+
+**D) Demographics Data Transformation DATAFLOW - Naming Conventions & Configure SINK**
+
+**E) Demographics Data Transformation DATAFLOW - Configure Pipeline & Pass Parameters**
+
+**F) Demographics Data Transformation DATAFLOW Pipeline Debugging And Testing**
+
 
 
 
@@ -4386,3 +4400,231 @@ After fixing the issue, we publish the pipeline and the trigger successfully. Th
 At this point, the trigger will load one year (and more) worth of weather data, month by month, into the bronze layer, with each month stored in its own folder and each file containing the market name.
 
 With this complete, the next task is to transform the bronze weather data into the silver layer. The weather data is still in a complex nested JSON structure, so we will need to flatten it, similar to what we did for the geocoding data. That transformation will be covered in the next section.
+
+# **XIV) Data Lake Silver Layer Data Transformation - Demographics Data**
+
+# **A) Demographics Data Transformation - Configure Source and Sink Datasets**
+
+Please make sure that if any of the datasets have not been moved into the proper folders, they are moved accordingly. The idea is that once we complete the development, we should be able to delete the Working Labs folder from each section and apply the final code directly. That approach is perfectly fine.
+
+I noticed that some datasets were not properly cleaned under the datasets section earlier, so I went ahead and cleaned them up now.
+
+At this point, we are moving into the transformation stage of our geo-location data. We have already loaded all the geo-location data for all market names. The next step is to transform this data and make it available for the subsequent gold layer. In the gold layer, we will merge this transformed geo-location data with the actual pricing data that has already been loaded into the reporting database.
+
+Our main requirement here is to extract the population data for each market from the geo-location data and merge it with the pricing data. This merged output will produce a final dataset of roughly 500,000 records, which will then be used for AI and machine learning services.
+
+To start this process, we go to Azure Data Factory and begin creating the datasets required for the transform (silver) layer. Wherever possible, I would like to reuse datasets that were already created. After making these changes, I will ensure everything is published so the updates are applied.
+
+Next, I will close all the open items and open the shared workspace.
+
+We already created the geo-location dataset for the bronze layer, but now we need to use this dataset as a source in the transformation pipeline. Originally, this dataset was created as a sink. As a best practice, we should never mix sink datasets as sources or source datasets as sinks.
+
+Because of this, we will create a copy of the existing dataset. This copied dataset will point to the same location in the Data Lake. While using a Common Model (CM) dataset, the behavior for source and sink is slightly different, but everything still points to the same Data Lake container, and the configuration looks correct.
+
+Although the data still physically exists in the bronze layer, I want to move this dataset definition into the transform folder, because it will now be used in the transformation pipeline.
+
+Similarly, we need to create one more dataset to store the output of the transformed data. For this, we will again reuse an existing dataset and simply change its naming convention from bronze to silver. This allows us to create the dataset quickly without changing much configuration.
+
+All these datasets will continue to exist in the same Data Lake storage account, so nothing significant changes at the storage level. If there are any schema differences between the source and sink, we can handle and correct those during data flow development or pipeline development.
+
+At this stage, we have successfully created the two datasets required for building the transformation data flow.
+
+Now, we move on to using a data flow to transform the source data into the sink data. The reason for this transformation is that the source geo-coding data is stored in a complex structure. Specifically, the source files contain a result array, and inside this array, the data is represented using dictionary (key-value) data types.
+
+However, after transformation, all the fields must exist as flattened, plain columns in the output file. We have already partially implemented this logic while developing the ingestion pipeline for the weather data, where we extracted latitude and longitude values from this same geo-location data.
+
+If you look at the source projection, the data appears in an array format, with values nested inside it. But in the sink, all columns are flattened and appear as individual fields. This is exactly what we aim to achieve again in this transformation.
+
+We will largely reuse the same transformation logic, but this time we will build a proper transformation pipeline to fully prepare the geo-location data for merging with the pricing data.
+
+The final objective is to add the population column to our pricing dataset. This enriched dataset will then be used by AI and machine learning services to analyze how population impacts pricing behavior.
+
+With this understanding in place, we will start creating the transformation pipeline in the next lesson.
+
+# **B) Demographics Data Transformation DATAFLOW Source Wildcard Paths Configuration**
+
+We need to create a data flow because we are changing the structure between the source and sink. The source data exists in a complex data type, whereas in the sink we want to store the data in a flattened format.
+
+So, we navigate to the Transform folder and start creating a new data flow. We follow the same naming conventions that we have consistently used earlier. This data flow is responsible for loading data into the silver layer in the Data Lake, which comes after the bronze layer.
+
+This is no longer raw data. We are transforming the data into a flattened and structured format. Therefore, we name the data flow as Silver Geolocation Data.
+
+Next, we add the source, which is the geolocation data from the bronze layer. We have already created the dataset for this. To make it easier to locate, you can search using the keyword bronze, which will limit the number of datasets shown.
+
+We include the HCM source here, which is the bronze geolocation dataset. If you are unable to find it easily, a helpful approach is to click on the dataset, copy its full name, and search using that exact name. This ensures only one dataset appears, making selection easier. In this case, two datasets may appear—one from Lab 5 and another from the complete implementation.
+
+Once the source is added, if you look at the projection screen, you will see a default schema defined in the dataset. However, the schema has not yet been imported, which is why no fields are displayed initially.
+
+We proceed to import the schema. Since this dataset is parameterized, it is not pointing to any source file by default. During schema import, it will prompt us to supply values for the parameters. We already know that the container name is pricing data lake, the folder name is bronze/geolocation, and for the file name, we can select any one file that contains valid data.
+
+Some of the files may not have data if the API did not return any results. In such cases, there is nothing we can do, and we will discuss that separately. For now, we focus on importing the schema correctly.
+
+After importing, we can see that the schema contains an array data type, and inside that array there are multiple columns. There is also a generation time in milliseconds, which captures the timestamp of when the API request was made. This is useful metadata and good information to retain.
+
+If you look at the projection window now, the schema appears correctly. At this point, we can move to the data preview. To preview the data, we may need to start a debug cluster. This allows us to inspect the data and determine the next transformation steps.
+
+The next major transformation we need is to flatten the array data type, since the values currently exist inside an array. In the data preview, you can clearly see the complex structure that needs to be flattened.
+
+At this point, you might encounter an error that looks familiar. We saw this same issue while developing the lab earlier. The error occurs because the source dataset is parameterized, but we have not yet passed values to those parameters.
+
+We can quickly fix this by passing the parameter values. This needs to be done only once and can then be reused for subsequent runs against the pricing data lake. While entering these values, it is important to ensure there are no typing mistakes. In this case, the file name has already been copied correctly.
+
+Once we save the parameters, the data preview works successfully. Now the data is displayed in its complex data type format.
+
+The ultimate goal of building the silver layer is to make the data easy to merge with the existing pricing data. The pricing data does not exist in this nested format. In the database table, it exists with ID-based columns, and our goal is to merge population data into that pricing dataset.
+
+That is why we are building this silver layer—so that when we populate the gold layer, we can seamlessly merge the pricing data with the population data.
+
+At the moment, the data preview shows only one row because it is pointing to a single market file. This happens because we supplied only one file name during schema import. However, our requirement is to extract data from all source files present in the geolocation folder, not just one file.
+
+To achieve this, we use an additional option in the source settings. Instead of pointing to a single file, we configure the source to use a wildcard path.
+
+It is important to note that the wildcard path does not include the container name. The container name must already be specified in the dataset itself, either as a parameter or as a hardcoded value. In the data flow, we only specify the folder path and wildcard pattern.
+
+We choose Wildcard Path (or Dynamic Content), which opens the Data Flow Expression Editor. The expression is very simple—we do not need to use any special functions. Since all market data files are stored as JSON, we specify the folder path and use a wildcard to read all JSON files from that folder.
+
+After saving and finishing, we go back to the data preview. Initially, it may look like no data is returned. If that happens, we simply refresh the preview from the source.
+
+Once refreshed, the preview displays data from all market JSON files present in the geolocation folder. Now we can see values for all market names.
+
+The final step at this stage is to flatten the result column so that all nested values become individual columns. We will perform this flattening operation in the next lesson.
+
+# **C) Demographics Data Transformation DATAFLOW - FLATTEN Complex JSON Structure**
+
+Now we are going to learn a new transformation that we have not covered before. This transformation is called Flatten. It is used to flatten complex data type columns, not only from JSON sources, but from any source where the data is coming in the form of an array or dictionary structure. Whenever data is nested, the flatten transformation can be used to convert it into a tabular format.
+
+In our case, we will name this transformation Flatten Geolocation Data, as it is specifically applied to our geolocation dataset.
+
+To configure the flatten transformation, we need to set two important options. First, we specify the column that needs to be flattened. When you click on the selection, it displays all complex data type columns that are not grayed out. Any column that is not grayed out means it can be flattened. If a column is grayed out, it cannot be unrolled.
+
+Here, we select the results column. When we move to the Unroll By option, we see that only one unroll route exists. In cases where multiple unroll routes exist, they need to be applied one after another. However, in our scenario, only one route is present. In other datasets, such as weather data or country profile data, multiple unroll routes may exist.
+
+At this point, the preview still shows only one row, which is expected because it is showing the source output. As soon as we apply the Unroll By operation and reset the input columns, the system automatically converts each value inside the array into individual columns. This completes the flattening step.
+
+If we refresh the data preview, we can now see all the data displayed in a fully flattened format. Every nested field has been converted into a separate column.
+
+Although we may not need all of these columns to merge with our pricing data, it is a best practice in a data lake architecture to store all incoming data as-is. Whatever data we ingest, we store it in the data lake. This is very important, as it allows flexibility for future use cases.
+
+When we inspect the flattened data, we notice that some records do not have population values. This is an interesting observation. The geocoding API we used is a global API, which means it returns market names that exist in multiple countries. For example, the same market name might exist in both India and the Philippines, so we receive data from multiple countries.
+
+At this stage, we do not need multi-country data in the silver layer. We can keep the full raw data in the bronze layer, and if required later, we can always refer back to it. For now, we only want to retain records related to India.
+
+Another important observation is that population data is reliably available mainly for India. Some countries do not provide population data globally. For example, we may see records coming from France, including towns with similar names, but population data may be missing. Since our pricing data is also India-specific, we do not need to include population data from other countries for this project.
+
+Therefore, we apply a filter transformation to keep only records where the country is equal to India. In the filter expression, we use the double equals (==) operator to check equality. Once this condition is applied and saved, refreshing the data preview shows only Indian records.
+
+Before loading the data into the silver layer sink, we need to apply one more important filter. Some Indian records still have null population values. Records without population data do not add any value for our use case, so we filter them out as well. This ensures that the silver layer contains only clean and usable data.
+
+Even though these records are filtered out in the silver layer, the raw data still exists in the bronze layer, so no information is lost. The purpose of the silver layer is to clean and standardize data so it can be safely used in the gold layer without data quality issues.
+
+It is important to note that this is open-source data, and data quality is not fully under our control. The primary objective here is to expose you to large datasets and show how to handle them in the best possible way. Some data quality issues are expected, and we have to live with them as part of this project.
+
+Now that we have filtered the data correctly, the final step before loading into the silver layer is to rename the source columns to more meaningful and business-friendly names. We will take care of that in the next lesson.
+
+# **D) Demographics Data Transformation DATAFLOW - Naming Conventions & Configure SINK**
+
+Before loading the data into the sink, we need to apply proper naming conventions so that the dataset is easily readable and understandable by everyone.
+
+We start by renaming the columns using silver-layer–friendly names. The ID column is coming directly from the geolocation API, so we rename it to something meaningful like geolocation_id. Wherever possible, we include the geolocation context in the column name.
+
+The name column actually represents the market name used in our project, so we rename it accordingly. The latitude and longitude columns are standard geolocation attributes, so we keep their names as they are.
+
+The elevation feature code is also kept unchanged. The country code remains the same as well. For the admin1 ID, instead of leaving it as a short technical name, we rename it to administration_id, which is more descriptive. This represents the government or administrative division responsible for that specific area.
+
+The population column is clearly named already, so we leave it as population. The country ID looks good as it is. The country column is renamed to country_name to make it more intuitive.
+
+The admin name column represents the state-level administrative division. In most cases, this maps to a district name, though for some markets it may differ. That variation is acceptable, so we leave it as is.
+
+With the naming conventions finalized, we can now add the sink to the data flow and start loading the transformed data into the silver layer.
+
+We select the sink dataset for the geolocation silver layer. Since we already created this dataset, we can simply copy the dataset name and search for it. Only one matching dataset appears, making the selection straightforward.
+
+Next, we look at the error handling (linked service for errors). If any errors occur during the data flow execution, we could redirect erroneous records to a separate linked service. However, for now, we do not need this functionality. We may consider it later when populating the gold layer.
+
+In the mapping section, auto-mapping is enabled by default. If we uncheck auto-mapping, we can see that the source columns are already correctly mapped to the sink columns based on the renamed fields. Since everything is aligned, no additional manual mapping is required.
+
+Moving to the settings, we review the partitioning options. The data flow supports partitioning, where the debug cluster splits the source data into multiple chunks and processes them in parallel.
+
+For now, we leave the default partitioning settings unchanged. The dataset size is relatively small, and based on the data inspection and preview, the performance looks reasonable.
+
+At this point, everything looks good. We can publish the data flow changes. In the next lesson, we will create the pipeline to execute this data flow and load the transformed geolocation data into the silver layer.
+
+# **E) Demographics Data Transformation DATAFLOW - Configure Pipeline & Pass Parameters**
+
+Let’s start by creating the pipeline under the Transform folder, since this pipeline is responsible for transforming the geo-location data and loading it into the silver layer of our Data Lake.
+
+The easiest and most recommended way to execute a data flow is to drag the data flow directly into the pipeline. When we do this, the pipeline automatically picks up the data flow name, fills in the activity name, and connects the pipeline to the selected data flow without any extra configuration.
+
+Once the data flow is added, it immediately asks for values for the source and sink dataset parameters. In reality, these values are mostly static. For example, the Data Lake container and folder names do not change between runs. Even the sink file name is actually determined internally by the data flow debug cluster. So technically, the values we pass here may not always be used, but without supplying them, the pipeline will not run.
+
+To handle this properly and avoid hardcoding, we create pipeline parameters and pass those parameters into the data flow. This makes the pipeline generic, reusable, and clean. As a best practice, when developing pipelines, never hardcode values unless there is absolutely no alternative.
+
+In this case, we create pipeline parameters for:
+
+Data Lake container name
+
+Data Lake folder name
+
+Data Lake file name
+
+Although we are passing a file name parameter, the source uses a wildcard path, so the actual file name will be ignored during execution. Still, the parameter is required at runtime.
+
+Since the pipeline runs only once and reads all files from the bronze geolocation folder and writes them to the silver layer, pipeline-level parameters are the best approach.
+
+The source and sink parameters look very similar, so while creating them, we clearly distinguish them by naming conventions—either by prefixing them as source and sink, or by using bronze and silver to differentiate them. This naming strategy will also be useful for future pipelines.
+
+To speed things up, we copy the bronze-related parameters and modify them for the silver layer. Instead of recreating everything, we simply change the folder and container references from bronze to silver.
+
+At this point, we realize that the file name parameter is not actually required for either the source or the sink, because:
+
+The source uses a wildcard path to read all files
+
+The sink does not require a fixed file name
+
+To avoid confusion, we go back to the datasets used in the transform layer and remove the file name parameter from both the source and sink datasets.
+
+We open the transform source dataset and remove the file name parameter. Since the wildcard logic already exists in the data flow, this parameter is unnecessary. We repeat the same step for the sink dataset and remove the file name parameter there as well.
+
+After removing these parameters, the pipeline will no longer ask for file name values, reducing complexity and preventing runtime confusion.
+
+Now, we return to the pipeline parameters and map only the container name and folder name parameters to the data flow. We carefully map each pipeline parameter to the correct dataset parameter, paying close attention to the naming because the parameters may not appear in the exact order we expect.
+
+We pass:
+
+The bronze container name and bronze folder name for the source
+
+The silver container name and silver folder name for the sink
+
+Once everything is mapped correctly, we validate the pipeline. The validation completes successfully without any errors.
+
+With that, we publish the changes. In the next lesson, we will run the pipeline and verify that the geo-location data is successfully transformed and loaded into the silver layer of the Data Lake.
+
+# **F) Demographics Data Transformation DATAFLOW Pipeline Debugging And Testing**
+
+Before running the pipeline, we first need to make sure that there is no existing data in the silver folder of our Data Lake. We check the silver/geolocation folder and confirm that it is empty. This ensures that we are loading fresh data and avoiding any duplication or confusion.
+
+Once that is confirmed, we start the pipeline and run it in debug mode. When the pipeline starts, it prompts us to provide values for the pipeline parameters. We pass those values again to ensure the pipeline has all the required inputs.
+
+For the source parameters, we provide the container name as pricing data lake. The bronze folder name is set to bronze/geolocation, which is where the raw geolocation data exists.
+
+For the sink parameters, we pass the folder name as silver/geolocation. This is the location where the transformed files will be generated. The container name remains the same in our case, so we pass pricing data lake again.
+
+After supplying all parameter values, we click OK, and the pipeline starts running.
+
+The pipeline runs smoothly and completes successfully in about one minute. This highlights the power of using the Data Flow Debug Cluster with partitioning enabled. With partitioning turned on, the source data is split across multiple cluster machines, and each machine processes a portion of the data in parallel. This significantly improves performance and speeds up the data loading process.
+
+This behavior is controlled by the default partitioning settings that we configured earlier at the data flow level. Using default partitioning for both the source and sink works well for this dataset.
+
+At this point, the pipeline execution is complete, and the geolocation data has been successfully loaded into the silver layer.
+
+In the next section, we will apply a similar transformation approach for the weather data. There is a lot of data being processed in this project, and if you notice the pipeline history, you may see that some pipelines have failed, some are still running, and many have completed successfully. This is expected when working with real-world data pipelines.
+
+Over the past seven days, we have completed a significant amount of data loading. First, we ingested 365 days of daily pricing data into the landing layer. Then, we loaded the entire dataset into a SQL Server database, including dimension tables and fact tables.
+
+After that, we started loading data into the Data Lake, including geolocation data and weather data. We still need to load the country profile data, which will complete the ingestion process. All of this data is coming in real time from actual source systems.
+
+As part of this process, we also transformed complex data structures. For example, geolocation data originally arrived in nested JSON format, which we flattened and stored as structured files. These flattened files can now be easily merged with the pricing data because they contain market name, state name, and administrative division information.
+
+This prepares us to build the gold layer in the Data Lake, which will be ready for AI and machine learning processing.
+
+In the next section, we will move on to transforming the weather data that was loaded into the bronze layer of our Data Lake. I’ll see you there.
