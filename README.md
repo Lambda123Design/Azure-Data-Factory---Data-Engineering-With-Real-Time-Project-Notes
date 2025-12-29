@@ -4647,14 +4647,293 @@ In the next section, we will move on to transforming the weather data that was l
 
 # **A) Weather Data Transformation - Configure Source and Sink Datasets & DATAFLOW**
 
+Now that we have loaded our weather data into the Bronze (branch) layer of the data lake, we can see that the structure of this data is more complex compared to the geo-location data we worked with earlier. This data is not flat and contains nested and array-based structures, which means it cannot be directly consumed for analytics or downstream use cases.
+
+Specifically, within the daily time section, the data is stored in arrays for multiple months, and for each date, there are associated values such as temperature, rainfall, and other weather metrics, along with their corresponding units. These values are represented in complex data types, making the structure harder to work with in its current form. Therefore, similar to what we did for geo-location data, we need to flatten this data and simplify it so it can be used effectively.
+
+To do this, we will start by creating datasets that read the weather data from the Bronze (branch) layer. Once the datasets are ready, we will build a data flow to apply the necessary transformations to flatten the data. The weather data is stored in JSON format, so we will work with JSON datasets.
+
+First, we will clone the existing Bronze weather dataset and rename it by appending “source” at the end, following the same naming convention we used earlier for branch geo-location data. This dataset will continue to point to the Bronze layer, as it represents the source of our transformation process.
+
+Next, we will move this dataset into the Transform folder, since all transformation pipelines are developed there. After that, we will create another copy of the weather dataset, this time aligning it with the Silver layer folder structure. This dataset will act as the sink (target) for our transformation and will point to the Silver layer. While creating this dataset, we will remove the word “source” from its name to clearly differentiate between source and sink datasets.
+
+It is important to note that all data exists in ADLS, which allows us to easily clone datasets instead of creating them from scratch. Although we could create new datasets from the beginning, cloning saves time and ensures consistency. Both the source and sink datasets still point to the same underlying storage, but their logical roles in the pipeline are different.
+
+At this point, we have successfully created the source dataset (Bronze weather data) and the sink dataset (Silver weather data). With these in place, we can now begin building the data flow that will read the weather data, flatten it, and load the transformed output into the Silver layer.
+
+The ultimate goal of this transformation is to merge the weather data with pricing information that already exists in an Azure SQL Server database. Since the weather data is captured at a daily level, it can be easily associated with existing pricing data based on date and market. This enriched dataset will later be used for analytics and machine learning services.
+
+Now, we create a new data flow under the Transform folder. Before applying any transformation logic, it is important to inspect the data to understand its structure. We name the data flow based on the layer and data type, for example: Silver Weather Data Flow.
+
+Inside the data flow, we add a source transformation and select the Bronze Weather Data Source dataset that we created earlier. Since we now have many datasets, copying and pasting the dataset name helps avoid confusion. Once selected, we verify that the dataset connection works correctly.
+
+Initially, when we look at the projection, we may not see any schema information. This is because the dataset is parameterized, and the schema has not yet been imported. To fix this, we go to the Schema tab and choose Import Schema from Connection Store. At this point, Azure Data Factory (or Synapse) will prompt us to provide values for the dataset parameters.
+
+We provide one of the existing weather JSON files from the Bronze layer. Since weather data is loaded monthly and continuously, we select a representative file (for example, from a specific month or year) to infer the schema. This is different from geo-location data, which is usually static and does not change frequently.
+
+Once the schema is imported, we move to the Data Preview to examine the actual structure of the data. Here, we can clearly see that some fields are available as plain columns, while others—such as daily weather values and units—are stored in separate arrays. Additionally, we have included attributes like latitude, longitude, and market name.
+
+Including the market name is especially important because it makes the data easier to reference and join in downstream analytical platforms. While latitude and longitude are useful, the market name is required for consistent integration with other datasets. This aligns with the purpose of the Silver layer, where we standardize and confirm data so it can be reused across the data lake.
+
+At this stage, the data is ready for transformation. In the next lesson, we will focus on flattening the daily rates, daily units, and daily weather values using appropriate transformations so that the final output can be written to the Silver layer in a clean, analytics-ready format.
+
 # **B) Weather Data Transformation - FLATTEN Nested JSON ARRAY Values Level1**
+
+Transcript not available
 
 # **C) Weather Data Transformation - FLATTEN Nested JSON ARRAY Values Level2**
 
+Now we proceed to the next level of flattening, where we focus on flattening the weather code array coming from the source JSON. The number of flatten levels you create always depends on the nested structure of the source JSON file. Since this weather data contains multiple nested arrays, we must flatten them step by step, one level at a time.
+
+At this stage, if you look at the structure carefully, the weather code is the next array that needs to be flattened. In the flatten settings, we choose the weather code array, and specifically select daily weather code. Once this is applied, if you check the data preview, you will notice that the weather code is no longer present as an array. Instead, it now appears as an individual column.
+
+However, even though the weather code is flattened at this level, if you go back and look at flatten level one, you will still see that weather code originally existed as an array. This confirms that the flattening process is working layer by layer. The array existed in one level, and in the next level, it is converted into a proper column.
+
+Next, we create flatten level three. In this level, we flatten the next available array from the source. Here, we unroll based on the time array, the weather code, and the temperature (2 meters max). Once this flattening is applied, these values automatically become common column names instead of remaining inside complex structures.
+
+It is important to understand that all arrays cannot be flattened in a single level when the data is highly complex. Because the JSON contains multiple nested arrays at different depths, Azure Data Factory (or Synapse Data Flow) requires us to flatten them across multiple levels. Each flatten level is responsible for handling one layer of complexity.
+
+After this, we move on to flatten level four. In this step, we flatten the minimum temperature, which is also captured at the 2-meter level. Once this transformation is applied, we quickly verify the output using data preview to ensure that the values are coming through correctly as plain columns.
+
+At this point, we observe that there is only one more nested array remaining. That final array corresponds to rain sum. So, we create flatten level five and apply the flattening logic to the rain sum data. The total number of flatten levels required is completely dependent on how deeply nested the source JSON structure is. If the source contains more nested arrays, additional flatten levels would be required.
+
+Now, when we check the data preview after flatten level five, we can clearly see that the data is fully flattened. All columns are now in a simple, tabular format, and none of them are of complex or array data types. This is exactly what we need before storing the data in the Silver layer.
+
+Before writing the output, we quickly review the column names to check whether any renaming is required. We examine columns such as daily weather, daily temperature, daily rain sum, and market name. Everything looks acceptable and follows the naming conventions required for downstream consumption.
+
+Our primary focus is on the daily time column, because this will be used to join with the pricing date from our pricing dataset. All weather information is associated with a market name, which allows us to combine and enrich the pricing data accurately.
+
+While reviewing the flattened output, we notice that duplicate column names and duplicate records are appearing. This is a common issue when flattening deeply nested arrays, especially when multiple arrays are unrolled independently.
+
+To address this problem, instead of fixing it immediately, we decide to handle it in the next lesson by applying an Aggregator transformation. The aggregation logic will help eliminate duplicate records and ensure that the final dataset contains one consolidated record per market per day, which is exactly what we need for analytics and machine learning use cases.
+
 # **D) Weather Data Transformation - Remove Duplicates and Create Transform Pipeline**
+
+I have now quickly added an Aggregator transformation to the data flow. While working with this transformation, we need to be very careful, because this data flow is resource-intensive. We are processing a large volume of weather data, and it is already in a complex structure before flattening. Because of this, even performing a data preview takes noticeable time.
+
+Since the weather data comes in nested and complex data types, the processing overhead is quite high. However, after applying the Aggregator, we can already see an improvement in the output. Some of the duplicate records are now avoided. For example, if we look at the market count, the same market name was appearing 286 times for the same date earlier. This clearly indicates duplication, and that is why applying aggregation becomes necessary.
+
+Because of this heavy processing, we also need to be careful while scheduling the pipeline. Originally, I thought of scheduling this data flow for one full year, but after observing the resource usage, I am a bit worried. Running this for a year could consume a lot of compute resources and significantly increase the cost.
+
+In fact, while just experimenting with this processing, I noticed that my pricing pipeline cost already went up to around £95. So this is a clear warning sign. We need to be cost-conscious and careful while running such transformations, especially in a real subscription where billing happens automatically.
+
+Also, it is important to understand that we are not directly using this weather data as a final product. Instead, we are preparing and enriching data. Along with pricing information, we are also planning to include population data and weather data, because all of these factors influence price fluctuations of products. That is the main reason we are investing effort into this transformation.
+
+Given the cost and complexity, it makes more sense to process only one month of data, rather than a full year. If we can produce a correct and clean final output for one month, that is more than sufficient for learning and demonstration purposes.
+
+Coming back to the Aggregator transformation, all I have done is apply a group by on the columns required in the final output. This ensures that the data contains unique records only. The columns we are specifically interested in are:
+
+Daily time
+
+Weather code
+
+Temperature (2-meter maximum)
+
+Temperature (2-meter minimum)
+
+Rain sum
+
+Market name
+
+This aggregation guarantees that we get one consolidated record per market per day.
+
+Once this is done, we map the output to the sink dataset that we already created earlier. I select the Silver Weather Data dataset as the sink. The dataset type is correct, and the settings, error handling, and mappings all look fine. I also verify auto-mapping to ensure that every column is mapped correctly. Everything looks good at this stage.
+
+Now, before running the pipeline, we need to adjust the source settings. Since there are multiple files in the Bronze weather data folder (nearly 5000 files per month), we should use a wildcard path. However, for now, we will not load the entire folder. Instead, we will test the pipeline using only one file.
+
+This is a deliberate decision to avoid unnecessary cost and heavy compute usage. By running it with just one file, we can clearly understand:
+
+Whether the pipeline works correctly
+
+How long it takes to run
+
+How resource-intensive the transformation is
+
+To execute the data flow, we create a transform pipeline. Instead of building everything from scratch, I simply copy the existing geolocation pipeline and replace the name with weather data. This new pipeline is clearly identified as a Silver Weather Data pipeline, not geolocation.
+
+As mentioned earlier, we will run it only for one day’s worth of data, not a full month or year. This is because I do not want you to accidentally consume a large amount of money. Remember, we have provided credit card details, and Microsoft automatically bills the subscription. So we must be extremely careful.
+
+While configuring the source parameters, we pass only one file name, not the entire folder path. This ensures the cluster processes only a small dataset. Even though the execution happens on a cluster and can handle large volumes, the data preview performance already indicates heavy processing, which is why we are cautious.
+
+The data lake container name remains the same, and for now, we hard-code the Silver folder path, for example:
+
+Silver/weather_data/2023/01
+
+The file name will be passed through parameters, but since it runs on the cluster, it will process it correctly.
+
+At this point, everything looks good. We publish the changes and ensure that all validations pass. During publishing, we notice a warning related to ForEach iterator settings in the weather metadata pipeline. This is unrelated to the current transformation pipeline and is due to a separate configuration change (iteration count adjustment). We close that and proceed.
+
+Now the pipeline is published successfully. We start the debug run and observe how long it takes to execute. Based on the success or failure of this run, we will analyze the behavior and performance in the next lesson.
 
 # **E) Weather Data Transformation - Removing Unwanted Source Columns & Set Parameters**
 
+We now reopen the data flow and make an important optimization step. The first thing we do is remove the daily unit weather code and daily weather code from the transformation. These two columns are the primary cause of the massive duplication we were seeing in the final output.
+
+The reason for this duplication is that the weather code captures multiple weather conditions across a month. When this data is flattened, it multiplies aggressively—effectively combining 30 days × multiple weather codes, which results in roughly 180 records per market per day. For our use case, this level of granularity is unnecessary and creates both performance and cost issues.
+
+To fix this, we delete the weather code at the very first flatten level. Once it is removed there, we must also delete the dependent flatten level immediately, otherwise the weather code will continue to propagate forward. However, even after doing this, the weather code can still reappear in later flatten levels, so it is critical to remove it consistently at every flatten stage—both at the daily unit level and the daily weather code level.
+
+This cleanup significantly improves the pipeline performance. As mentioned earlier, our goal is simply to bring weather information at the market and daily level into the final output. That is all we need. Weather codes represent very specific conditions and are not required for the pricing and analytical use cases we are building.
+
+We also double-check the sink mappings. If the weather code is still mapped there, we explicitly unmap it. Once this is done, the remaining columns—daily date, temperature (2-meter max), temperature (2-meter min), rain sum, and market name—look correct and aligned with our requirements.
+
+When we run the data preview again, the improvement is obvious. Earlier, the preview took a very long time to return. Now, it comes back within a minute, which is very promising. This confirms that removing the weather code has dramatically reduced data explosion.
+
+Next, we rerun the pipeline for one market again. The execution is still many times faster than the previous version. Even when considering cluster startup time, the data flow completes in roughly one minute, which is completely acceptable.
+
+To be safe, we run it again for one day’s worth of data. This helps us verify that there are no hidden performance bottlenecks. The execution time gives us a good benchmark and helps answer the question: Should we run this monthly or yearly? Based on the results, monthly execution looks reasonable, while yearly execution would still be risky from a cost perspective.
+
+Since the performance now looks stable, we can start automating the transformation pipeline. The plan is to schedule it for one month first, observe the cost and execution behavior, and then decide whether to run it for subsequent months. There is still some concern about cost, but with the optimizations in place, it should be manageable.
+
+To enable automation, we now need to parameterize the dataset values being passed into the data flow. One parameter, such as 202301, represents the weather month (January 2023). This parameter must be derived dynamically, because each run will process a different month. The remaining parameters can be passed directly as pipeline parameters.
+
+We have already implemented similar logic in the ingestion pipeline, so we can reuse that approach here. All we really need is a single dynamic variable that represents the weather month.
+
+We create a pipeline variable called weather_month. During setup, we notice that two variables appear due to copy-paste behavior. To avoid confusion, we delete the duplicate and keep only one clean variable. We then add a Set Variable activity and assign the dynamic value to weather_month.
+
+After checking the settings, we confirm that only one variable exists and that the dynamic content is correctly configured. Everything looks clean and consistent.
+
+Next, we map these values into the data flow parameters. Inside the data flow, we only need to pass values for the folder paths. To do this, we create pipeline parameters such as:
+
+Data lake container name
+
+Bronze folder name
+
+Silver folder name
+
+The container name is the same for both Bronze and Silver layers. The Bronze folder path is:
+
+bronze/weather_data
+
+And the Silver folder path is:
+
+silver/weather_data
+
+These folder paths are then concatenated with the weather_month variable, allowing the pipeline to dynamically process the correct month during execution.
+
+At this point, the pipeline is optimized, parameterized, and ready for monthly execution. In the next lesson, we will pass these values into the dataset parameters and complete the automation setup.
+
 # **F) Weather Data Transformation - Dynamic DATAFLOW Parameter Passing From Pipeline**
 
+Now that we have configured all the variables properly, we can start mapping them into the pipeline parameters. First, we map the container name. We intentionally created only one container name parameter, because the same container is used for both Bronze and Silver layers. Unlike earlier pipelines where we used separate container parameters, here a single container name is sufficient.
+
+Next, we configure the Bronze (branch) folder name. This folder name must change every month, so it cannot be hardcoded. Instead, it needs to be a concatenation of the Bronze folder base path and the variable month. We use the concat() function for this purpose. The first argument is the Bronze folder name, followed by a comma, and then the pipeline variable that contains the month value. This ensures that every monthly run automatically points to the correct folder.
+
+We apply the same logic to the Silver folder name. Again, we use the concat() function, selecting the Silver folder base path and appending the pipeline variable for the month. This keeps both the source and sink paths aligned and dynamic across monthly runs.
+
+Even though the file name parameter is not actively used during execution, we still pass it. The pipeline expects a value, so we provide it to avoid validation issues, even though it does not affect the actual processing.
+
+At this point, we need to make one important change in the data flow. Earlier, the source was reading a specific file name passed through the dataset. Now that we are running monthly loads, we want to load all weather data files within the folder. So we go back to the data flow source settings.
+
+In the source settings, we remove the file name parameter, because it is no longer required. Instead, we switch to using a wildcard path. This allows the data flow to read all files in the specified folder, rather than a single file.
+
+To support this, we must create a data flow parameter. When we loaded geo-location data, the folder path never changed, so we hardcoded it. But for weather data, the folder path changes every month, so a parameter is mandatory. We create a data flow parameter called something like sink_weather_month_folder_name.
+
+For the first run, this parameter value would look like:
+
+silver/weather_data/202301
+
+
+This parameter will later be used inside the wildcard path configuration in the data flow source.
+
+Now we return to the pipeline and pass the correct value to this data flow parameter. To do this, we use the Pipeline Expression Builder. The value is constructed using:
+
+The pipeline parameter for the Silver folder base path
+
+The dynamically derived month value
+
+A trailing slash (/) to ensure the wildcard path works correctly
+
+This ensures the data flow receives a fully qualified folder path and does not fail due to formatting issues.
+
+Once the expression is configured, we validate the pipeline again. Initially, we might see an error like “No value provided for parameter sink_weather_month_folder_name”, but once the expression is correctly added, the error disappears.
+
+All values are now coming dynamically from:
+
+Pipeline parameters
+
+Pipeline variables (derived month)
+
+Concatenation logic
+
+So the configuration is clean and consistent.
+
+We publish the changes and make sure everything is saved. Before adding any trigger, we decide to run a manual debug execution. This step is very important, because this pipeline is still resource-intensive, and we want to be absolutely sure that it behaves correctly.
+
+I want to be very careful here. I do not want to waste your money by running something too large or too long. So we debug it with one month of data only.
+
+For the debug run:
+
+Weather start date is set to the first day of the month (for example, 01-01)
+
+Weather end date is set to the last day of the month (for example, 01-31)
+
+This ensures the pipeline runs exactly once per month, which aligns with how it will be triggered later.
+
+Based on our earlier one-file test, execution time was very reasonable. So this run should complete without issues. We monitor the execution closely and observe how long it takes, how the cluster behaves, and whether any errors occur.
+
+Once this debug run completes successfully, we will be confident enough to attach a trigger and fully automate the monthly execution.
+
+We will review the results and performance in the next lesson.
+
 # **G) Weather Data Transformation - Identifying and Fixing User Errors**
+
+The job has failed, but this is actually a very good opportunity to understand the root cause of the error. The error message is very clear, and this is where proper naming conventions become extremely valuable.
+
+The failure message shows:
+
+Job failed at source source_bronze_weather_data_read
+
+This immediately tells us where the issue is occurring—at the source. Because we followed meaningful naming conventions, it becomes very easy to identify the exact step that is failing and why.
+
+The error message also clearly shows the path:
+
+/silver/weather_data/202301
+
+
+Now this is the key problem. We are reading data from the Bronze layer, but the pipeline is trying to read from the Silver layer. There is no such folder in the Silver layer at this point, because Silver is the target, not the source. Logically, this is a big mistake.
+
+When reading data, we should always point to the Bronze (branch) folder, not the Silver folder. So the fix is straightforward.
+
+We go back to the data flow parameters. This is exactly why we created data flow parameters in the first place. Anything that needs to be dynamically passed and used inside data flow expressions or settings must be a data flow parameter. Dataset parameters alone cannot be accessed inside data flow transformation settings.
+
+Inside the parameters section, we notice that the folder name being passed is incorrect. Instead of passing the Silver folder name, we must pass the Bronze folder name, because the source transformation reads from Bronze.
+
+So we update the data flow parameter value to:
+
+bronze/weather_data/202301
+
+
+This immediately resolves the logical issue. This mistake also strongly reinforces why clear naming conventions are so important—they help us detect and fix issues very quickly.
+
+We start the pipeline again, confident that this change should fix the problem.
+
+However, we encounter one more error, and again, this is due to a small but important oversight. After the folder path, we must specify a wildcard pattern:
+
+*.json
+
+
+Earlier, we only provided:
+
+.json
+
+
+Without the wildcard (*), the data flow cannot read all the files in the folder. The correct wildcard path should be:
+
+*.json
+
+As soon as you see this type of error, you should immediately know where to go and what to fix. If you are able to diagnose and correct these issues on your own, that means your understanding is becoming solid.
+
+This is exactly why I intentionally show these mistakes. These are real errors that occur in real projects, and learning how to debug them is far more valuable than seeing only perfect runs.
+
+We correct the wildcard path and debug the pipeline again.
+
+This time, the pipeline starts running successfully. We are loading last year’s weather data, which will later be used for future predictions, and that is completely fine.
+
+The pipeline has now been running for about 13 minutes, which indicates that it is actively processing the data. Most importantly, all earlier errors are gone.
+
+When we navigate to the Silver layer, we can see that the weather data is being written. Multiple files are being created, corresponding to weather data for different markets. This confirms that the pipeline is working as expected.
+
+Everything looks very promising at this stage. Once the pipeline completes successfully, we will verify that all data has been correctly loaded into the Silver layer.
+
+We will review the final output and validations in the next lesson.
