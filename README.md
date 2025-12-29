@@ -349,7 +349,21 @@ This Repository contains my Notes of "Azure Data Factory - Data Engineering With
 
 **F) Demographics Data Transformation DATAFLOW Pipeline Debugging And Testing**
 
+**XV) Data Lake Silver Layer Data Transformation - Weather Data**
 
+**A) Weather Data Transformation - Configure Source and Sink Datasets & DATAFLOW**
+
+**B) Weather Data Transformation - FLATTEN Nested JSON ARRAY Values Level1**
+
+**C) Weather Data Transformation - FLATTEN Nested JSON ARRAY Values Level2**
+
+**D) Weather Data Transformation - Remove Duplicates and Create Transform Pipeline**
+
+**E) Weather Data Transformation - Removing Unwanted Source Columns & Set Parameters**
+
+**F) Weather Data Transformation - Dynamic DATAFLOW Parameter Passing From Pipeline**
+
+**G) Weather Data Transformation - Identifying and Fixing User Errors**
 
 
 
@@ -4628,3 +4642,19 @@ As part of this process, we also transformed complex data structures. For exampl
 This prepares us to build the gold layer in the Data Lake, which will be ready for AI and machine learning processing.
 
 In the next section, we will move on to transforming the weather data that was loaded into the bronze layer of our Data Lake. I’ll see you there.
+
+# **XV) Data Lake Silver Layer Data Transformation - Weather Data**
+
+# **A) Weather Data Transformation - Configure Source and Sink Datasets & DATAFLOW**
+
+# **B) Weather Data Transformation - FLATTEN Nested JSON ARRAY Values Level1**
+
+# **C) Weather Data Transformation - FLATTEN Nested JSON ARRAY Values Level2**
+
+# **D) Weather Data Transformation - Remove Duplicates and Create Transform Pipeline**
+
+# **E) Weather Data Transformation - Removing Unwanted Source Columns & Set Parameters**
+
+# **F) Weather Data Transformation - Dynamic DATAFLOW Parameter Passing From Pipeline**
+
+# **G) Weather Data Transformation - Identifying and Fixing User Errors**
