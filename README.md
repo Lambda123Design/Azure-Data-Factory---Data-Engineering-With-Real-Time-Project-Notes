@@ -365,6 +365,24 @@ This Repository contains my Notes of "Azure Data Factory - Data Engineering With
 
 **G) Weather Data Transformation - Identifying and Fixing User Errors**
 
+**XVI) Data Lake Gold Layer Transformation - Get Data Ready for Prediction Algorithms**
+
+**A) Gold Layer Data Transformation Overview**
+
+**B) Gold Layer Data Transformation - Configure Source Datasets**
+
+**C) Gold Layer Data Transformation DATAFLOW - Prepare Common Column Name on Sources**
+
+**D) Gold Layer Data Transformation DATAFLOW - Combine Sources Using JOINER**
+
+**E) Gold Layer Data Transformation DATAFLOW - Pipeline Debuging**
+
+**F) Gold Layer Data Transformation - COPYDATA Into Azure SQL Database**
+
+**G) Gold Layer Data Transformation - COPYDATA Into Azure SQL Database Error Handling**
+
+**H) DataLake Layers Building - End To End Summary**
+
 
 
 # **I) Introduction**
@@ -4937,3 +4955,267 @@ When we navigate to the Silver layer, we can see that the weather data is being 
 Everything looks very promising at this stage. Once the pipeline completes successfully, we will verify that all data has been correctly loaded into the Silver layer.
 
 We will review the final output and validations in the next lesson.
+
+# **XVI) Data Lake Gold Layer Transformation - Get Data Ready for Prediction Algorithms**
+
+# **A) Gold Layer Data Transformation Overview**
+
+Now that we have successfully built both the bronze layer and the silver layer using geo-location data, we currently have two key datasets available: population data and weather data.
+
+When we closely observe the weather dataset, it is evident that the file sizes are quite large. This leads us to the next phase of the architecture, which is to combine the silver layer data with our SQL Server database and generate the gold layer.
+
+As an initial step, instead of immediately combining all datasets, I plan to merge only the pricing data with the geo-location (population) data. This will help us validate the overall process and ensure that the gold layer creation works as expected. Once this is successfully achieved, we can decide whether to include the weather data and build the final gold layer.
+
+Even when we combine only the geo-location data with pricing, it still qualifies as a gold layer. The same methodology can later be extended to include weather data as well. However, the weather data is significantly larger because it is sourced from an open-source API. During the initial research, the data volume was underestimated. Some datasets are reaching sizes of nearly 500 MB, which was not originally expected.
+
+That said, the purpose of the bronze layer remains unchanged—it stores raw data exactly as received. This data is then transformed and cleaned in the silver layer, making it ready for joining with the original pricing data. Once the data reaches the silver layer, it becomes suitable for building the gold layer.
+
+For now, we will start by combining the geo-location output (population data) with the fact table to create the gold layer. Based on the outcome, we will later decide whether to bring weather data into the gold layer as well. The overall process remains the same in both cases.
+
+The joining logic is straightforward. We will read data from the fact table in the reporting SQL database and merge it with the geo-location dataset using a common column, which in our case is the market name. This merged dataset will form our gold layer.
+
+Typically, the gold layer resides in the SQL Server database. However, initially, we will build and store it in the Data Lake Storage Account. Once validated, the final output will be loaded into SQL Server.
+
+One important concern to keep in mind is subscription cost. Since this course is being executed under a free subscription, excessive processing—especially with large weather datasets—can result in unexpected charges. Although loading weather data into the silver layer is technically fine, the processing time is quite high.
+
+For example, loading just one month of weather data took approximately 1 hour and 33 minutes, and moving that data into the silver layer took an additional 30 minutes. Given this scale, we need to be cautious before fully integrating weather data into the gold layer.
+
+Therefore, we will first focus on building the gold layer by combining the pricing data from SQL Server with geo-location population data. This will help demonstrate how a gold layer is designed and structured.
+
+Once the gold layer is built, it will be fully consumable, meaning it can directly serve analytics, reporting, or downstream services without any additional transformations. This is especially important for use cases like machine learning, where the data should already be clean, structured, and ready for consumption.
+
+In short, the gold layer is designed to be the final, business-ready dataset. After loading data into the gold layer, no further processing should be required.
+
+In the next lesson, we will begin building the gold layer by joining the fact table from the SQL data warehouse with geo-location data, load it into the data lake first, and then move the final output into the SQL Server database.
+
+# **B) Gold Layer Data Transformation - Configure Source Datasets**
+
+To build our first gold layer, we need three datasets in total. These datasets will act as the foundation for joining and enriching our data before loading it into the gold layer.
+
+The first dataset is the fact table. This table contains all our original pricing details covering the entire year. I am going to create a clone of the existing fact table and use that clone as the source dataset. Currently, this dataset is already being used as an ACM sink during the existing fact table load process. Since it already exists and is reliable, I will reuse the same dataset configuration as a source for this gold layer build. Once configured, I will publish it. This becomes our first source.
+
+The second dataset we need is the dim market table. This dataset already exists as a source, so we can directly reuse it. The reason this dataset is required is because the fact table does not contain the market name. It only contains the market ID. However, our geo-location dataset contains only the market name and not the market ID. Therefore, the dim market table becomes the bridge between these two datasets.
+
+The third dataset is the geo-location dataset from the silver layer. This is important to note—it is not the bronze layer, but the transformed silver layer. When creating this dataset, we will import the schema directly from the silver layer geo-location files.
+
+During schema import, it asks for parameter values such as container name and folder name, not the file name itself. Since of that, we need to navigate to the silver layer and pick one of the geo-location files to help the system infer the schema correctly.
+
+In our case, the container name is pricing-data-lake, which is where all pricing-related data is stored. The folder path will point to the silver layer, specifically something like silver/geolocation. From this location, the system should be able to read one of the files and automatically generate the metadata. If it does not work at the folder level, we can always explicitly pass a single file name at the dataset level.
+
+Once the schema is created successfully, we will notice that we only need two columns from the geo-location dataset:
+
+Market Name
+
+Population
+
+The reason we need the dim market source becomes very clear here. Since the fact table only has market ID, we first need to join the fact table with the dim market table using the market ID. This gives us access to the market name.
+
+Once we have the market name, we can then join this enriched dataset with the silver geo-location dataset using the market name as the joining condition. This allows us to bring in the population data.
+
+After these joins are completed, the final enriched dataset can be stored in the gold layer. This gold layer will contain pricing data enhanced with market and population details, making it fully ready for downstream consumption.
+
+At this point, all the necessary datasets have been created. In the next lesson, we will move forward and start building the data flow that performs these joins and loads the final output into the gold layer.
+
+# **C) Gold Layer Data Transformation DATAFLOW - Prepare Common Column Name on Sources**
+
+Let’s start by creating the data flow. This new data flow is going to design our gold layer, and this gold layer will later be consumed by AI and ML price prediction algorithms.
+
+I am going to name this data flow as Gold Layer – Price Prediction Data. The reason for this name is that this dataset will contain all the additional enriched information required to help predict product prices effectively. This clearly represents that the data flow is producing gold-layer data.
+
+The first step is to add the source. The first source will be the fact table, which comes from the SQL Server reporting database. This source reads the report fact table, which contains the core pricing data. We already created the dataset for this fact table earlier, so I will reuse it here.
+
+To make it easier, I will copy the dataset name and search for it while adding the source. Once selected, you can see that all the columns from the fact table appear in the projection. This confirms that the source is correctly configured.
+
+Next, we need to add an additional source, which is the dim market table. This is required because the fact table contains only the market ID, while our silver-layer geo-location data contains only the market name. To bridge this gap, we must join the fact table with the dim market table using the market ID.
+
+The dim market dataset already exists because it was created earlier as part of the fact table load process. We simply filter and select it here. Once added, the projection confirms that the expected columns are available.
+
+Now we will apply a join transformation to join the fact table and the dim market table. Since both datasets contain a market ID column, we will rename the dim market columns to avoid confusion. For clarity, we rename them as dim_market_id and dim_market_name. Any unnecessary columns can be removed at this stage.
+
+We then configure the join using market ID as the joining condition. This join enriches the fact table with the market name, which is essential for the next step. We use an inner join because, for the gold layer, we only want matching and valid records. The gold layer must be extremely clean, as no further cleansing will be done downstream.
+
+Once the join is complete, we can inspect the output and confirm that the data looks correct. From the fact table, we retain fields like created date and updated date, as they can be useful in analytics and auditing at the gold layer.
+
+Next, we add the third source, which is the geo-location data from the silver layer. This dataset will allow us to combine population data with pricing information so that downstream models can analyze how population impacts pricing at the market level.
+
+We configure this source to read from the data lake geo-location dataset. After adding it, the projection shows many columns, but we are not interested in all of them. Our primary focus is on market name and population.
+
+However, we may also retain latitude and longitude, as these can be useful for data scientists if they want to link this data with other spatial datasets. Fields like elevation, feature code, and country code are not particularly useful, so they can be removed. Instead, we keep country name, state or division name, and population-related attributes.
+
+During cleanup, it is important to ensure that the population column is retained, as it is the key attribute we want to expose to downstream consumers. Additional geographic identifiers can be kept to help troubleshoot or deduplicate data if required.
+
+To avoid confusion in the final dataset, we apply consistent naming conventions. For example, we rename fields as geo_location_market_name, geo_location_population, geo_location_latitude, geo_location_longitude, and geo_location_country_name. This clearly indicates the source of each column.
+
+Now we perform the final join transformation, joining the enriched pricing data (already joined with dim market) with the geo-location data. This join is again an inner join, using dim_market_name from the dimension lookup and market name from the geo-location dataset.
+
+At this point, records are not yet visible because the correct stream selection has not been finalized. We will address stream selection and complete this join configuration in the next lesson.
+
+# **D) Gold Layer Data Transformation DATAFLOW - Combine Sources Using JOINER**
+
+Now let’s choose the right stream. The correct stream in this case is the geolocation read stream. Once we select it, we can see that the geo-location market name starts appearing in the joined output, which confirms that the join is now working as expected.
+
+If we inspect the output at this stage, we can see that there are too many columns coming through. To clean this up, we apply a select transformation to remove unnecessary columns. After doing this, the dataset looks much cleaner and more relevant for the gold layer.
+
+Next, we can perform a quick data preview using the data flow debug mode. This helps us validate how the data is flowing through the transformations. At this point, we should also consider whether any filters are required before loading the data into the gold layer. For now, no additional filtering seems necessary.
+
+We have not yet created the gold layer dataset, but that will be done shortly when we configure the sink. So this is absolutely fine for now.
+
+While running the debug, it prompts us to verify the parameter values. The container name is pricing-data-lake, which is correct. Initially, the folder name was set to bronze/geo-location, but that is not what we want. Since we are reading transformed data, the correct path should be silver/geo-location. Once this is corrected, we save the configuration.
+
+After saving, the data refresh should work smoothly. Even though the source is not pointing to a specific file, the default debug setting fetches only 1000 records, which is more than sufficient for development and validation purposes. We do not need to fetch a larger volume at this stage.
+
+Once the preview loads, we can verify that the data looks correct. Key fields such as state ID, market ID, product ID, variety ID, and date ID are all present. Pricing attributes like arrival times, minimum price, and maximum price are also coming through as expected.
+
+Most importantly, the population data is present, which is the primary enrichment we wanted from the geo-location dataset. That confirms the join logic is working correctly. We also verify that there are no duplicate records, which is a very good sign for a gold-layer dataset.
+
+Since the data looks clean and correct, we can now proceed to load this into the sink. To do that, we need to create a sink dataset. We can reuse or clone an existing dataset to speed things up.
+
+In this case, I will use the silver geo-location dataset as a base and clone it to create a new dataset for the gold layer. Even though it is cloned from geo-location, this dataset will not store geo-location data. Instead, it will store price prediction input data, which represents the gold layer.
+
+This dataset does not need to bind to an existing schema at this point, so leaving the schema flexible is perfectly fine. Once the dataset is created, we go back to the pipeline and map this newly created gold price prediction dataset to the sink.
+
+I will copy the dataset name and use it while configuring the sink so that everything is mapped correctly.
+
+With this, the gold layer data flow is ready to write clean, enriched, and ML-ready data into the data lake.
+
+# **E) Gold Layer Data Transformation DATAFLOW - Pipeline Debuging**
+
+Let’s now start the pipeline run. The pipeline runs smoothly, and everything looks good so far. We can see that the data flow is executing properly and the data is being passed into the gold layer as expected.
+
+As the pipeline progresses, we can confirm that the price prediction folder has been created in the gold layer. It is also generating a good number of output files, which indicates that the data is being written correctly.
+
+Typically, gold layer data is loaded into a SQL Server database. If you are using Databricks, the same data would usually be written into Delta Lake tables. Most AI and machine learning services work very efficiently when data is stored in database tables. While it is not mandatory, loading the data into a database provides more advanced capabilities for analytics and ML workloads.
+
+Another key advantage of loading gold data into a database is security. Databases provide stronger access control and governance mechanisms, which makes them more suitable for enterprise-grade AI and ML use cases.
+
+Once the data flow completes, the next step is to load the gold layer data into SQL Server. This can be done using a Copy Data activity, which is a very straightforward process.
+
+The pipeline run has now completed successfully, which is very promising. If we navigate to the gold price prediction folder, we can see that all the data has been loaded properly.
+
+To quickly validate the output, we can open one of the smaller files, for example, a file of around 179 KB. Smaller files are easier to inspect and confirm correctness. When we open it, the data looks very good.
+
+We can clearly see that the population data has been loaded along with the core pricing data. Additional attributes such as country ID, country name, and division name are also present. This confirms that the geo-location enrichment worked as expected.
+
+Some values like date IDs may appear multiple times, which is expected because pricing data is captured across different dates. Overall, the dataset looks clean and ready for consumption.
+
+The next step is to quickly develop one more pipeline that loads this gold layer data into the SQL Server database. We will then invoke that pipeline from the gold price prediction data flow pipeline, so that once the gold layer data flow completes, the data automatically gets loaded into SQL Server.
+
+With this, we will complete the end-to-end data lake build, from bronze to silver to gold, and finally into the database.
+
+# **F) Gold Layer Data Transformation - COPYDATA Into Azure SQL Database**
+
+To load the data from the gold layer into the SQL Server database, we need to create two datasets—one for the source and one for the sink.
+
+For the source dataset, I am going to copy the existing price prediction dataset that we created for the gold layer and convert it into a source dataset. This dataset will read data directly from the gold layer in the data lake.
+
+For the sink dataset, it will point to a SQL Server database table. To create this quickly, I will copy the existing fact daily pricing dataset, but I will remove both the schema name and table name from it. This is because this dataset should not point to the reporting database. Instead, it should point to the SQL database where we store gold layer outputs.
+
+This SQL sink dataset will be used to load gold price prediction data, not reporting data. For now, we will leave the table name empty and allow the system to create the table automatically during the first run, based on the incoming schema.
+
+With that, both the source and sink datasets are now created.
+
+Next, we move on to creating the pipeline. I will rename and create a new pipeline named PL_Gold_Price_Prediction_Data_SQL_Copy, which clearly indicates its purpose—copying gold layer price prediction data into SQL Server.
+
+Inside this pipeline, we will use a Copy Data activity. This is a good opportunity to demonstrate how to use a wildcard path in Copy Data activity for reading multiple files from the data lake.
+
+For the source of the Copy Data activity, we select the gold price prediction source dataset that we created earlier. Renaming the dataset properly helps make it easier to select and avoid confusion.
+
+For the sink, we select the SQL Server dataset created earlier for gold price prediction data. Again, we use the same dataset naming convention to keep things consistent and clear.
+
+Now, when configuring the source settings, instead of specifying a single file path, we provide a wildcard file path. The idea is to read all files generated under the gold layer price prediction folder.
+
+The wildcard path we pass is something like:
+
+gold/price_prediction/*.json
+
+This allows the Copy Data activity to read all files under the gold price prediction folder. Since we are using wildcard paths for the first time in this setup, there is a possibility of minor configuration issues. If any errors occur, we will debug and fix them accordingly.
+
+For the sink configuration, we enable the option to auto-create the table. This allows SQL Server to create the table automatically during the first run based on the incoming schema.
+
+Once everything is configured, we attempt to publish and run the pipeline. At this point, the pipeline prompts us to enter the table name manually.
+
+We provide the schema and table name as:
+
+Schema: data_lake_gold
+
+Table name: price_prediction
+
+This naming convention makes it clear that the table belongs to the gold layer and contains price prediction data.
+
+However, the model validation fails, indicating that something still needs to be fixed—most likely related to how the table name or schema is being passed. This is expected, especially when working with wildcard paths and dynamic table creation for the first time.
+
+We re-enter the table name properly and save the configuration. The pipeline will be executed and validated fully in the next lesson, where we will debug and resolve any remaining issues if they occur.
+
+This completes the setup for loading gold layer data into SQL Server, bringing us very close to a full end-to-end bronze → silver → gold → database pipeline.
+
+# **G) Gold Layer Data Transformation - COPYDATA Into Azure SQL Database Error Handling**
+
+Now let’s run the pipeline and see how it behaves. The expectation is that the pipeline will read all files from the gold layer and populate the newly created gold layer table in the SQL Server database schema.
+
+We wait for the pipeline execution to complete. Unfortunately, the pipeline fails, so the next step is to review the error details and debug the root cause.
+
+As expected, the error message clearly points us in the right direction. It states that a database operation failed and that a value of type string from the source could not be converted to a float in the target column. This means the target SQL table was created with float or double data types, but some of the incoming source values are strings.
+
+Most likely, this issue is related to the monetary or pricing fields. In some of the source files, numeric values are coming in as strings, or contain invalid characters. When Data Factory tries to insert those values into float columns, the load fails.
+
+This is a very common real-world scenario. If a value is coming as a string and the target expects a float, that value is not valid numeric data, and we cannot force it into the table. Such rows need to be handled explicitly.
+
+At this point, I want to introduce an important Data Factory feature that helps in such scenarios—fault tolerance. Instead of failing the entire pipeline, we can configure the sink to skip incompatible rows. This allows valid rows to load successfully while problematic rows are ignored.
+
+In the sink settings, we enable Skip incompatible rows and also turn on logging. Once logging is enabled, Data Factory asks for a storage location where it can write details about the skipped or erroneous records.
+
+For this, we choose the pricing data lake and create a new folder, for example, error-data, to store all incompatible rows and warning logs. This makes debugging easier and allows us to review the rejected data later.
+
+This approach is much better than changing all numeric columns in the SQL table to strings. Changing the target schema would weaken data quality and is not a good solution for analytics or machine learning use cases.
+
+After applying these settings, we rerun the pipeline. This time, the pipeline runs successfully, confirming that incompatible rows were skipped and valid data was loaded.
+
+Next, we go to the SQL Server database to validate the loaded data. The price prediction table is present, and the data looks good. We run a quick COUNT(*) query to confirm the volume of data loaded.
+
+The result shows that more than one million records have been successfully loaded into the gold layer SQL table, which is excellent.
+
+We then validate one of the most important enrichment fields—geo_location_population. We check how many records have null population values, and the result is zero, which confirms that the geo-location enrichment worked correctly.
+
+With this, we have successfully:
+
+Built the gold layer
+
+Persisted the gold data into the data lake
+
+Loaded the gold data into the SQL Server database
+
+Handled real-world data quality issues using fault tolerance
+
+This completes the end-to-end data lake architecture, from bronze to silver to gold, and finally into a structured database ready for analytics and machine learning workloads.
+
+# **H) DataLake Layers Building - End To End Summary**
+
+I will give you a quick recall of the different layers that we have built in our data lake, so that you clearly understand what we are doing in each layer and what the purpose of the three layers is. This recap will help you connect the overall architecture with the pipelines and transformations we have implemented.
+
+We started by loading data into the bronze layer by ingesting data from two different source systems. The first source is geo-location data, and the second source is weather data. Both of these data sources use the same ingestion mechanism to bring data into the data lake. The data is read from an external web service using REST API calls, which are dynamically constructed, and the retrieved data is then ingested into the bronze layer of the data lake. This was the first step in our architecture, and we successfully completed it.
+
+The bronze layer always contains source data in its raw format, without any transformations or modifications. This principle applies to the weather data as well. Since the data is coming from an external API, we had to perform a few additional steps to make the ingestion work correctly. You can revisit the ingestion pipeline development videos to understand the exact steps we followed at each stage of the pipeline and how data was brought into the bronze layer.
+
+After completing the bronze layer, we moved on to building the silver layer. In the silver layer, the main objective was to flatten the data. Flattening is one of the common requirements in many projects, though the exact transformation requirements may vary depending on the use case. In our project, we plan to integrate this data with other datasets. One such use case involves integrating global product data and comparing pricing across countries to identify export potential. Since we already have product pricing data from different countries, we can compare our pricing against theirs to understand which products are not being produced in specific countries. This analysis helps identify potential products that can be exported to those countries.
+
+In our case, we focused on flattening the data in the silver layer because the goal was to teach how to handle semi-structured data, which is very common today, especially JSON data. We demonstrated both simple JSON flattening and complex JSON flattening. In addition to this, there is another JSON dataset related to country profile data that needs to be brought into the pipeline. This has been provided as an advanced lab exercise. It follows the same structure and design pattern from the bronze layer to the silver layer and finally to the gold layer.
+
+I will likely walk you through the requirements and structure of this advanced lab and provide all the necessary details for hands-on implementation. However, I will not develop the code for this part. The idea is that if you are able to develop this pipeline on your own using the given inputs, then you are completely ready for your job role. If you can successfully build these pipelines using just two pipelines and the inputs provided, you can confidently start applying what you have learned in real-world scenarios.
+
+After completing the silver layer, we moved on to building the gold layer. Ideally, while building the gold layer, we should include both geo-location data and weather data. However, I did not include weather data in the gold layer because of its large file size. I was concerned that loading this data might cause the Azure free account to exceed its limits too quickly. In fact, in one day alone, the cost exceeded around £90, and I did not want to take that risk. For this reason, we decided to skip loading weather data into the gold layer.
+
+Even though the weather data was not included, I have clearly explained the structure and logic of how the gold layer should work. The gold layer is driven primarily by the pricing information, which we had already loaded into the fact table and used as the main driver dataset. If you are not building a reporting database directly, then all the source data that was originally brought into the landing layer for reporting purposes should instead be brought into the bronze layer of the data lake.
+
+This is completely possible because we have already loaded global pricing data using the same ingestion pipeline. The same pipeline can be reused to load data into the bronze layer with minimal changes. In our case, it is very straightforward. We simply need to create a copy of the metadata file and modify it to point to the bronze layer. If time permits, that is one additional run I would like to demonstrate.
+
+The same pipeline can be reused by changing the metadata file to point to the pricing data lake container and the appropriate bronze folder. The metadata file I am referring to is the metadata_daily_pricing_source_file.json. Currently, this file points to the landing folder. Instead of the landing folder, we can change it to point to the pricing data lake and update the folder path to bronze/last_daily_pricing. Once this change is made, all the data will start flowing into the bronze layer of the data lake.
+
+Instead of using a SQL Server database table as the source, we could have used the actual source files coming directly from the external system. However, since we had already built clean and reliable data in our SQL Server table, we chose to use that table directly while building the gold layer. In the gold layer, we merge all the additional source data together and populate a consolidated view that represents pricing modifiers or pricing influencers.
+
+First, the data is loaded into the gold layer. After that, we quickly developed a pipeline to load this gold data into a SQL Server table. This pipeline can be triggered after the gold data flow completes. If this pipeline is added at the end of the gold price prediction data flow, then every time the data flow runs, the pipeline will also run automatically. Since this process is scheduled to run on a daily basis, it will update the SQL Server table with any changes coming from the source systems, which works perfectly fine.
+
+To combine the weather data with the existing gold data flow, we simply need to include one more source in the data flow. The weather data also contains the market name, so we can apply a similar join condition based on the market name. By adding one more join transformation, the weather data can be combined with the existing datasets and loaded into the gold layer. From there, the subsequent pipeline can load the enriched data into the database table.
+
+Due to pricing constraints, I stopped short of implementing this step, but the structure and logic are already clear. As mentioned earlier, the weather data definitely includes the market name as one of its columns. If you look at the bronze weather data source, you can clearly see the market name column being brought in. Therefore, combining weather data into the gold layer is a very straightforward task and does not involve any complex logic.
+
+Overall, we have built an end-to-end data lake architecture and clearly demonstrated what type of data is stored in each layer of the data lake. In the next lesson, I will provide a concise summary of the entire data lake solution, along with the pipelines and operational aspects that we defined in the presentation.
